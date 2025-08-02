@@ -1,0 +1,23 @@
+# === Node modules (React frontend) ===
+node_modules/
+build/
+dist/
+.env
+
+# === Python/Flask backend ===
+__pycache__/
+*.pyc
+*.pyo
+instance/
+.env
+.env.*
+venv/
+*.db
+*.sqlite3
+
+# === VS Code ===
+.vscode/
+
+# === OS generated ===
+.DS_Store
+Thumbs.db

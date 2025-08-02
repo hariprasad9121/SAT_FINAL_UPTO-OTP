@@ -1,0 +1,14 @@
+.App {
+  min-height: 100vh;
+  background-color: var(--bg-light);
+}
+
+.container-fluid {
+  padding: 20px;
+}
+
+@media (max-width: 768px) {
+  .container-fluid {
+    padding: 10px;
+  }
+} 
