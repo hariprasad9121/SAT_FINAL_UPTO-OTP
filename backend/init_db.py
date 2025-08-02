@@ -1,4 +1,4 @@
-from app import app, db, Admin, Student, Certificate
+from app import app, db, Admin, Student, Certificate, OTP
 from app import hash_password
 from datetime import datetime
 

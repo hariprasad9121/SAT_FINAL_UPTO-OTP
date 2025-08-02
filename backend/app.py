@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
 import os
 import bcrypt
 import json
-from datetime import datetime
+import random
+import string
+from datetime import datetime, timedelta, timezone
 import openpyxl
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
@@ -13,16 +16,16 @@ from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 import io
 
+from config import Config
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sat_portal.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config.from_object(Config)
 
 # Ensure upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
+mail = Mail(app)
 CORS(app)
 
 # Database Models
@@ -66,7 +69,17 @@ class Certificate(db.Model):
     event_type = db.Column(db.String(100))
     file_path = db.Column(db.String(255))
     status = db.Column(db.String(20), db.CheckConstraint("status IN ('Pending', 'Approved', 'Rejected')"), default='Pending')
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+class OTP(db.Model):
+    __tablename__ = 'otps'
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    otp_code = db.Column(db.String(6), nullable=False)
+    purpose = db.Column(db.String(20), nullable=False)  # 'registration' or 'reset_password'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    is_used = db.Column(db.Boolean, default=False)
 
 # Utility functions
 def hash_password(password):
@@ -98,6 +111,93 @@ def validate_rollnumber(rollnumber):
     pattern = r'^[A-Za-z0-9]{10}$'
     return re.match(pattern, rollnumber) is not None
 
+def generate_otp():
+    """Generate a 6-digit OTP"""
+    return ''.join(random.choices(string.digits, k=6))
+
+def send_otp_email(email, otp_code, purpose):
+    """Send OTP email to user"""
+    try:
+        if purpose == 'registration':
+            subject = "SAT Portal - Email Verification OTP"
+            body = f"""
+            <html>
+            <body>
+                <h2>🎓 SAT Portal - Email Verification</h2>
+                <p>Thank you for registering with SAT Portal!</p>
+                <p>Your verification OTP is: <strong style="font-size: 24px; color: #007bff;">{otp_code}</strong></p>
+                <p>This OTP will expire in 10 minutes.</p>
+                <p>If you didn't request this registration, please ignore this email.</p>
+                <br>
+                <p>Best regards,<br>SAT Portal Team</p>
+            </body>
+            </html>
+            """
+        else:  # reset_password
+            subject = "SAT Portal - Password Reset OTP"
+            body = f"""
+            <html>
+            <body>
+                <h2>🔐 SAT Portal - Password Reset</h2>
+                <p>You requested a password reset for your SAT Portal account.</p>
+                <p>Your reset OTP is: <strong style="font-size: 24px; color: #007bff;">{otp_code}</strong></p>
+                <p>This OTP will expire in 10 minutes.</p>
+                <p>If you didn't request this reset, please ignore this email.</p>
+                <br>
+                <p>Best regards,<br>SAT Portal Team</p>
+            </body>
+            </html>
+            """
+        
+        msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[email])
+        msg.html = body
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+def create_otp_record(email, purpose):
+    """Create OTP record in database"""
+    # Delete any existing unused OTPs for this email and purpose
+    OTP.query.filter_by(email=email, purpose=purpose, is_used=False).delete()
+    
+    otp_code = generate_otp()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    
+    otp_record = OTP(
+        email=email,
+        otp_code=otp_code,
+        purpose=purpose,
+        expires_at=expires_at
+    )
+    
+    db.session.add(otp_record)
+    db.session.commit()
+    
+    return otp_code
+
+def verify_otp(email, otp_code, purpose):
+    """Verify OTP from database"""
+    otp_record = OTP.query.filter_by(
+        email=email, 
+        otp_code=otp_code, 
+        purpose=purpose, 
+        is_used=False
+    ).first()
+    
+    if not otp_record:
+        return False, "Invalid OTP"
+    
+    if datetime.utcnow() > otp_record.expires_at:
+        return False, "OTP has expired"
+    
+    # Mark OTP as used
+    otp_record.is_used = True
+    db.session.commit()
+    
+    return True, "OTP verified successfully"
+
 # Admin credentials
 ADMIN_CREDENTIALS = {
     'admin@cse': {'password': 'Cse@srit', 'branch': 'COMPUTER SCIENCE AND ENGINEERING'},
@@ -110,14 +210,41 @@ ADMIN_CREDENTIALS = {
 }
 
 # Routes
+@app.route('/api/auth/student/send-otp', methods=['POST'])
+def send_registration_otp():
+    try:
+        data = request.get_json()
+        
+        if not data.get('email'):
+            return jsonify({'error': 'Email is required'}), 400
+        
+        # Email validation
+        if not validate_email(data['email']):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        # Check if email already registered
+        if Student.query.filter_by(email=data['email']).first():
+            return jsonify({'error': 'Email already registered'}), 400
+        
+        # Generate and send OTP
+        otp_code = create_otp_record(data['email'], 'registration')
+        
+        if send_otp_email(data['email'], otp_code, 'registration'):
+            return jsonify({'message': 'OTP sent successfully to your email'}), 200
+        else:
+            return jsonify({'error': 'Failed to send OTP. Please try again.'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/auth/student/register', methods=['POST'])
 def student_register():
     try:
         data = request.get_json()
         
         # Validation
-        if not all(key in data for key in ['name', 'rollnumber', 'email', 'password', 'phone', 'gender', 'branch', 'section', 'year']):
-            return jsonify({'error': 'All fields are required'}), 400
+        if not all(key in data for key in ['name', 'rollnumber', 'email', 'password', 'phone', 'gender', 'branch', 'section', 'year', 'otp']):
+            return jsonify({'error': 'All fields including OTP are required'}), 400
         
         # Email validation
         if not validate_email(data['email']):
@@ -138,6 +265,11 @@ def student_register():
         
         if Student.query.filter_by(email=data['email']).first():
             return jsonify({'error': 'Email already registered'}), 400
+        
+        # Verify OTP
+        is_valid_otp, otp_message = verify_otp(data['email'], data['otp'], 'registration')
+        if not is_valid_otp:
+            return jsonify({'error': otp_message}), 400
         
         # Create new student
         hashed_password = hash_password(data['password'])
@@ -233,6 +365,70 @@ def admin_login():
                 return jsonify({'error': 'Invalid password'}), 401
         else:
             return jsonify({'error': 'Invalid employee ID'}), 401
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/student/forgot-password', methods=['POST'])
+def forgot_password():
+    try:
+        data = request.get_json()
+        
+        if not data.get('email'):
+            return jsonify({'error': 'Email is required'}), 400
+        
+        # Email validation
+        if not validate_email(data['email']):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        # Check if email exists
+        student = Student.query.filter_by(email=data['email']).first()
+        if not student:
+            return jsonify({'error': 'No account found with this email address'}), 404
+        
+        # Generate and send OTP
+        otp_code = create_otp_record(data['email'], 'reset_password')
+        
+        if send_otp_email(data['email'], otp_code, 'reset_password'):
+            return jsonify({'message': 'Password reset OTP sent successfully to your email'}), 200
+        else:
+            return jsonify({'error': 'Failed to send OTP. Please try again.'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/student/reset-password', methods=['POST'])
+def reset_password():
+    try:
+        data = request.get_json()
+        
+        if not all(key in data for key in ['email', 'otp', 'new_password']):
+            return jsonify({'error': 'Email, OTP, and new password are required'}), 400
+        
+        # Email validation
+        if not validate_email(data['email']):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        # Password validation
+        is_valid, message = validate_password(data['new_password'])
+        if not is_valid:
+            return jsonify({'error': message}), 400
+        
+        # Check if email exists
+        student = Student.query.filter_by(email=data['email']).first()
+        if not student:
+            return jsonify({'error': 'No account found with this email address'}), 404
+        
+        # Verify OTP
+        is_valid_otp, otp_message = verify_otp(data['email'], data['otp'], 'reset_password')
+        if not is_valid_otp:
+            return jsonify({'error': otp_message}), 400
+        
+        # Update password
+        student.password = hash_password(data['new_password'])
+        db.session.commit()
+        
+        return jsonify({'message': 'Password reset successfully'}), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -407,21 +603,48 @@ def download_certificate(certificate_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/student/certificate/<int:certificate_id>/view', methods=['GET'])
+def view_certificate(certificate_id):
+    try:
+        certificate = db.session.get(Certificate, certificate_id)
+        if not certificate:
+            return jsonify({'error': 'Certificate not found'}), 404
+        
+        if not os.path.exists(certificate.file_path):
+            return jsonify({'error': 'Certificate file not found'}), 404
+        
+        return send_file(
+            certificate.file_path,
+            as_attachment=False,
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/dashboard', methods=['GET'])
 def admin_dashboard():
     try:
-        # Get statistics
-        total_certificates = Certificate.query.count()
-        pending_certificates = Certificate.query.filter_by(status='Pending').count()
-        approved_certificates = Certificate.query.filter_by(status='Approved').count()
-        rejected_certificates = Certificate.query.filter_by(status='Rejected').count()
+        # Get admin branch from request headers or query params
+        admin_branch = request.args.get('branch') or request.headers.get('X-Admin-Branch')
         
-        # Get recent certificates
-        recent_certificates = Certificate.query.order_by(Certificate.uploaded_at.desc()).limit(10).all()
+        # Build query with branch filter if provided
+        query = Certificate.query
+        if admin_branch:
+            query = query.filter_by(branch=admin_branch)
+        
+        # Get statistics filtered by branch
+        total_certificates = query.count()
+        pending_certificates = query.filter_by(status='Pending').count()
+        approved_certificates = query.filter_by(status='Approved').count()
+        rejected_certificates = query.filter_by(status='Rejected').count()
+        
+        # Get recent certificates filtered by branch
+        recent_certificates = query.order_by(Certificate.uploaded_at.desc()).limit(10).all()
         
         recent_list = []
         for cert in recent_certificates:
-            student = Student.query.get(cert.student_id)
+            student = db.session.get(Student, cert.student_id)
             recent_list.append({
                 'id': cert.id,
                 'student_name': cert.name,
@@ -469,7 +692,7 @@ def get_admin_certificates():
         
         certificate_list = []
         for cert in certificates:
-            student = Student.query.get(cert.student_id)
+            student = db.session.get(Student, cert.student_id)
             certificate_list.append({
                 'id': cert.id,
                 'student_name': cert.name,
@@ -641,44 +864,70 @@ def get_analytics():
         branch = request.args.get('branch')
         event_type = request.args.get('event_type')
         
-        query = Certificate.query
-        
-        if year:
-            query = query.filter_by(year=year)
+        # Build base query with branch filter if provided
+        base_query = Certificate.query
         if branch:
-            query = query.filter_by(branch=branch)
-        if event_type:
-            query = query.filter_by(event_type=event_type)
+            base_query = base_query.filter_by(branch=branch)
         
-        # Branch-wise statistics
-        branch_stats = db.session.query(
-            Certificate.branch,
-            db.func.count(Certificate.id).label('count')
-        ).group_by(Certificate.branch).all()
+        # Apply additional filters
+        if year:
+            base_query = base_query.filter_by(year=year)
+        if event_type:
+            base_query = base_query.filter_by(event_type=event_type)
+        
+        # Branch-wise statistics (only if no specific branch filter)
+        if not branch:
+            branch_stats = db.session.query(
+                Certificate.branch,
+                db.func.count(Certificate.id).label('count')
+            ).group_by(Certificate.branch).all()
+        else:
+            branch_stats = [{'branch': branch, 'count': base_query.count()}]
         
         # Year-wise statistics
         year_stats = db.session.query(
             Certificate.year,
             db.func.count(Certificate.id).label('count')
-        ).group_by(Certificate.year).all()
+        )
+        if branch:
+            year_stats = year_stats.filter(Certificate.branch == branch)
+        if year:
+            year_stats = year_stats.filter(Certificate.year == year)
+        if event_type:
+            year_stats = year_stats.filter(Certificate.event_type == event_type)
+        year_stats = year_stats.group_by(Certificate.year).all()
         
         # Event type statistics
         event_stats = db.session.query(
             Certificate.event_type,
             db.func.count(Certificate.id).label('count')
-        ).group_by(Certificate.event_type).all()
+        )
+        if branch:
+            event_stats = event_stats.filter(Certificate.branch == branch)
+        if year:
+            event_stats = event_stats.filter(Certificate.year == year)
+        if event_type:
+            event_stats = event_stats.filter(Certificate.event_type == event_type)
+        event_stats = event_stats.group_by(Certificate.event_type).all()
         
         # Status statistics
         status_stats = db.session.query(
             Certificate.status,
             db.func.count(Certificate.id).label('count')
-        ).group_by(Certificate.status).all()
+        )
+        if branch:
+            status_stats = status_stats.filter(Certificate.branch == branch)
+        if year:
+            status_stats = status_stats.filter(Certificate.year == year)
+        if event_type:
+            status_stats = status_stats.filter(Certificate.event_type == event_type)
+        status_stats = status_stats.group_by(Certificate.status).all()
         
         return jsonify({
-            'branch_stats': [{'branch': stat[0], 'count': stat[1]} for stat in branch_stats],
-            'year_stats': [{'year': stat[0], 'count': stat[1]} for stat in year_stats],
-            'event_stats': [{'event_type': stat[0], 'count': stat[1]} for stat in event_stats],
-            'status_stats': [{'status': stat[0], 'count': stat[1]} for stat in status_stats]
+            'branch_stats': [{'branch': stat.branch, 'count': stat.count} for stat in branch_stats] if not branch else [{'branch': branch, 'count': base_query.count()}],
+            'year_stats': [{'year': stat.year, 'count': stat.count} for stat in year_stats],
+            'event_stats': [{'event_type': stat.event_type, 'count': stat.count} for stat in event_stats],
+            'status_stats': [{'status': stat.status, 'count': stat.count} for stat in status_stats]
         }), 200
         
     except Exception as e:
@@ -691,6 +940,10 @@ def generate_report():
         year = request.args.get('year')
         branch = request.args.get('branch')
         status = request.args.get('status')
+        
+        # Check if at least one filter is applied
+        if not any([year, branch, status]):
+            return jsonify({'error': 'Please select at least one filter (Year, Branch, or Status) before downloading the report'}), 400
         
         query = Certificate.query
         
@@ -722,7 +975,7 @@ def generate_excel_report(certificates):
     
     # Data
     for cert in certificates:
-        student = Student.query.get(cert.student_id)
+        student = db.session.get(Student, cert.student_id)
         # Create a proper download link that will work when the Excel file is opened
         certificate_pdf_link = f"=HYPERLINK(\"http://localhost:5000/api/student/certificate/{cert.id}/download\", \"Download Certificate\")" if cert.file_path else "N/A"
         ws.append([
@@ -760,48 +1013,44 @@ def generate_pdf_report(certificates):
     doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
     elements = []
     
-    # Title
+    # Title with smaller font
     styles = getSampleStyleSheet()
-    title = Paragraph("Certificate Reports", styles['Title'])
+    title_style = styles['Title']
+    title_style.fontSize = 14
+    title = Paragraph("Certificate Reports", title_style)
     elements.append(title)
     
-    # Data
-    data = [['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Certificate Name', 'Event Type', 'Start Date', 'End Date', 'Status', 'Uploaded At', 'Certificate PDF']]
+    # Data with reduced columns for better fit
+    data = [['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Event Type', 'Status', 'Uploaded At']]
     
     for cert in certificates:
-        student = Student.query.get(cert.student_id)
-        # Create a clickable download link for PDF
-        certificate_pdf_link = f"Download Certificate (ID: {cert.id})" if cert.file_path else "N/A"
+        student = db.session.get(Student, cert.student_id)
         data.append([
             str(cert.id),
-            cert.name,
+            cert.name[:20] + '...' if len(cert.name) > 20 else cert.name,  # Truncate long names
             student.rollnumber if student else 'N/A',
-            cert.email,
-            cert.branch,
+            cert.email[:25] + '...' if len(cert.email) > 25 else cert.email,  # Truncate long emails
+            cert.branch[:15] + '...' if len(cert.branch) > 15 else cert.branch,  # Truncate long branch names
             str(cert.year),
-            cert.certificate_name or cert.event_type,
-            cert.event_type,
-            cert.start_date.strftime('%Y-%m-%d') if cert.start_date else 'N/A',
-            cert.end_date.strftime('%Y-%m-%d') if cert.end_date else 'N/A',
+            cert.event_type[:12] + '...' if len(cert.event_type) > 12 else cert.event_type,  # Truncate event type
             cert.status,
-            cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
-            certificate_pdf_link
+            cert.uploaded_at.strftime('%Y-%m-%d')  # Only date, not time
         ])
     
-    table = Table(data)
+    table = Table(data, repeatRows=1)
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.orange),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),  # Smaller header font
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
         ('BACKGROUND', (0, 1), (-1, -1), colors.white),
         ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.orange])
+        ('FONTSIZE', (0, 1), (-1, -1), 6),  # Much smaller data font
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),  # Thinner grid
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
     ]))
     
     elements.append(table)
@@ -825,6 +1074,8 @@ def generate_pdf_report(certificates):
         as_attachment=True,
         download_name='certificates_report.pdf'
     )
+
+
 
 
 

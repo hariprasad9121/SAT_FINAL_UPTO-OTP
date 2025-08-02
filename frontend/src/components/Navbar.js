@@ -18,7 +18,7 @@ const NavigationBar = ({ user, userType, onLogout }) => {
     <Navbar bg="white" expand="lg" className="shadow-sm">
       <Container>
         <Navbar.Brand href="#" className="fw-bold">
-          🎓 SAT Portal
+          SAT Portal
         </Navbar.Brand>
         
         <Navbar.Toggle aria-controls="basic-navbar-nav" />
@@ -40,7 +40,7 @@ const NavigationBar = ({ user, userType, onLogout }) => {
           <Nav className="ms-auto">
             <Dropdown align="end">
               <Dropdown.Toggle variant="outline-primary" id="dropdown-basic">
-                👤 {user?.name || 'User'}
+                 {user?.name || 'User'}
               </Dropdown.Toggle>
 
               <Dropdown.Menu>
@@ -64,11 +64,11 @@ const NavigationBar = ({ user, userType, onLogout }) => {
                 </Dropdown.Header>
                 <Dropdown.Divider />
                 <Dropdown.Item onClick={() => handleNavigation('/profile')}>
-                  📋 Profile
+                   Profile
                 </Dropdown.Item>
                 <Dropdown.Divider />
                 <Dropdown.Item onClick={handleLogout}>
-                  🚪 Logout
+                   Logout
                 </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Row, Col, Card, Button, Form, Modal, Alert, Badge, 
   Table, Spinner
@@ -26,11 +26,7 @@ const StudentCertificates = ({ user }) => {
     'Competition', 'Training', 'Certification', 'Project', 'Other'
   ];
 
-  useEffect(() => {
-    loadCertificates();
-  }, [user.id]);
-
-  const loadCertificates = async () => {
+  const loadCertificates = useCallback(async () => {
     try {
       setLoading(true);
       const response = await studentAPI.getCertificates(user.id);
@@ -40,7 +36,11 @@ const StudentCertificates = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user.id]);
+
+  useEffect(() => {
+    loadCertificates();
+  }, [loadCertificates]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -107,7 +107,7 @@ const StudentCertificates = ({ user }) => {
     <div>
       <Row className="mb-4">
         <Col>
-          <h2>📋 Manage Certificates</h2>
+          <h2>Manage Certificates</h2>
           <p className="text-muted">Upload and manage your certificates</p>
         </Col>
         <Col xs="auto">
@@ -115,7 +115,7 @@ const StudentCertificates = ({ user }) => {
             variant="primary" 
             onClick={() => setUploadModal(true)}
           >
-            📤 Upload New Certificate
+            Upload New Certificate
           </Button>
         </Col>
       </Row>
@@ -227,7 +227,7 @@ const StudentCertificates = ({ user }) => {
       {/* Upload Modal */}
       <Modal show={uploadModal} onHide={() => setUploadModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>📤 Upload Certificate</Modal.Title>
+          <Modal.Title>Upload Certificate</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form autoComplete="off">
@@ -315,7 +315,7 @@ const StudentCertificates = ({ user }) => {
       {/* View Certificate Modal */}
       <Modal show={viewCertificateModal} onHide={() => setViewCertificateModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>📄 Certificate Details</Modal.Title>
+          <Modal.Title>Certificate Details</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {selectedCertificate && (
@@ -358,14 +358,14 @@ const StudentCertificates = ({ user }) => {
                         }
                       }}
                     >
-                      📄 Download Certificate
+                      Download Certificate
                     </Button>
                     <Button 
                       variant="outline-secondary" 
                       size="sm"
                       onClick={async () => {
                         try {
-                          const response = await studentAPI.downloadCertificate(selectedCertificate.id);
+                          const response = await studentAPI.viewCertificate(selectedCertificate.id);
                           const blob = new Blob([response.data], { type: 'application/pdf' });
                           const url = window.URL.createObjectURL(blob);
                           window.open(url, '_blank');
@@ -375,7 +375,7 @@ const StudentCertificates = ({ user }) => {
                         }
                       }}
                     >
-                      👁️ View Certificate
+                      View Certificate
                     </Button>
                   </div>
                 )}

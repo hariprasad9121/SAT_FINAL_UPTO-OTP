@@ -5,12 +5,19 @@ A comprehensive web application for managing student certificates and achievemen
 ## Features
 
 ### Student Features
-- **Enhanced Registration**: 
+- **Enhanced Registration with OTP Verification**: 
   - 10-character alphanumeric roll numbers (e.g., 224G1A3224)
   - Updated branch names with full department names
   - Sections A-H
   - Year of study (I, II, III, IV)
   - Enter key functionality for form submission
+  - **Email OTP verification required for registration**
+  - **Resend OTP functionality**
+
+- **Password Recovery**:
+  - **Forgot password option in login form**
+  - **Email-based password reset with OTP verification**
+  - **Secure password reset process**
 
 - **Student Dashboard**:
   - Edit profile functionality
@@ -63,12 +70,29 @@ A comprehensive web application for managing student certificates and achievemen
    pip install -r requirements.txt
    ```
 
-3. Initialize the database:
+3. **Configure Email Settings** (Required for OTP functionality):
+   ```bash
+   python setup_email.py
+   ```
+   This interactive script will:
+   - Guide you through Gmail setup
+   - Create the `.env` file automatically
+   - Test your email configuration
+   
+   **Manual Setup Alternative:**
+   - Follow instructions in `EMAIL_SETUP.md`
+   - Create a `.env` file with your email credentials:
+     ```
+     MAIL_USERNAME=your-email@gmail.com
+     MAIL_PASSWORD=your-app-password
+     ```
+
+4. Initialize the database:
    ```bash
    python init_db.py
    ```
 
-4. Run the Flask server:
+5. Run the Flask server:
    ```bash
    python app.py
    ```
@@ -102,16 +126,27 @@ The frontend will be available at `http://localhost:3000`
    - Select your department and section
    - Choose your year of study (I-IV)
 3. Submit the form (Enter key works for submission)
+4. **Check your email for OTP verification code**
+5. **Enter the 6-digit OTP to complete registration**
+6. **Use "Resend OTP" if you don't receive the email**
 
 ### Student Dashboard
 1. Login with your roll number and password
-2. View your profile information
-3. Click "Edit Profile" to update your details
-4. Upload certificates with additional details:
+2. **Use "Forgot Password?" if you can't remember your password**
+3. View your profile information
+4. Click "Edit Profile" to update your details
+5. Upload certificates with additional details:
    - Certificate name
    - Start and end dates
    - Event type
-5. View your certificate history and download certificates
+6. View your certificate history and download certificates
+
+### Password Recovery
+1. Click "Forgot Password?" on the login page
+2. Enter your registered email address
+3. Check your email for password reset OTP
+4. Enter the OTP and set a new password
+5. Login with your new password
 
 ### Admin Dashboard
 1. Login with your department-specific admin credentials
@@ -127,8 +162,10 @@ The frontend will be available at `http://localhost:3000`
 - **Students**: Enhanced with new branch names and year format
 - **Certificates**: Added certificate_name, start_date, end_date fields
 - **Admins**: Department-specific admin accounts
+- **OTP**: Email verification and password reset tokens
 
 ### API Endpoints
+- **Authentication**: OTP-based registration and password reset
 - Enhanced certificate upload with additional fields
 - Department-specific filtering
 - Bulk certificate status updates

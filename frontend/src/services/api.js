@@ -12,9 +12,12 @@ const api = axios.create({
 
 // Auth API
 export const authAPI = {
+  sendRegistrationOTP: (data) => api.post('/auth/student/send-otp', data),
   studentRegister: (data) => api.post('/auth/student/register', data),
   studentLogin: (credentials) => api.post('/auth/student/login', credentials),
   adminLogin: (credentials) => api.post('/auth/admin/login', credentials),
+  forgotPassword: (data) => api.post('/auth/student/forgot-password', data),
+  resetPassword: (data) => api.post('/auth/student/reset-password', data),
 };
 
 // Student API
@@ -32,11 +35,17 @@ export const studentAPI = {
   downloadCertificate: (certificateId) => api.get(`/student/certificate/${certificateId}/download`, {
     responseType: 'blob',
   }),
+  viewCertificate: (certificateId) => api.get(`/student/certificate/${certificateId}/view`, {
+    responseType: 'blob',
+  }),
 };
 
 // Admin API
 export const adminAPI = {
-  getDashboard: () => api.get('/admin/dashboard'),
+  getDashboard: (filters = {}) => {
+    const params = new URLSearchParams(filters);
+    return api.get(`/admin/dashboard?${params}`);
+  },
   getCertificates: (filters = {}) => {
     const params = new URLSearchParams(filters);
     return api.get(`/admin/certificates?${params}`);

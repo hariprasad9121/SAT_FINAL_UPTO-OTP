@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Form, Button, Alert, Row, Col } from 'react-bootstrap';
+import { Card, Form, Button, Alert, Row, Col, Modal } from 'react-bootstrap';
 import { Link, useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 
@@ -20,6 +20,11 @@ const StudentRegister = () => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [showOTPModal, setShowOTPModal] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [registrationData, setRegistrationData] = useState(null);
 
   const branches = [
     'COMPUTER SCIENCE AND ENGINEERING',
@@ -129,7 +134,7 @@ const StudentRegister = () => {
       setLoading(true);
       setMessage('');
 
-      const registrationData = {
+      const data = {
         name: formData.name.trim(),
         rollnumber: formData.rollnumber.trim(),
         email: formData.email.trim(),
@@ -141,7 +146,40 @@ const StudentRegister = () => {
         year: formData.year
       };
 
-      await authAPI.studentRegister(registrationData);
+      // Send OTP first
+      await authAPI.sendRegistrationOTP({ email: data.email });
+      
+      // Store registration data and show OTP modal
+      setRegistrationData(data);
+      setShowOTPModal(true);
+      setMessage('OTP sent to your email! Please check and enter the verification code.');
+
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOTPSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!otp.trim()) {
+      setOtpError('Please enter the OTP');
+      return;
+    }
+
+    try {
+      setOtpLoading(true);
+      setOtpError('');
+
+      // Add OTP to registration data
+      const finalData = {
+        ...registrationData,
+        otp: otp.trim()
+      };
+
+      await authAPI.studentRegister(finalData);
       
       // Clear form data after successful registration
       setFormData({
@@ -157,15 +195,32 @@ const StudentRegister = () => {
         year: ''
       });
       
+      setShowOTPModal(false);
+      setOtp('');
       setMessage('Registration successful! Redirecting to login...');
       setTimeout(() => {
         navigate('/login');
       }, 2000);
 
     } catch (error) {
-      setMessage(error.response?.data?.error || 'Registration failed. Please try again.');
+      setOtpError(error.response?.data?.error || 'OTP verification failed. Please try again.');
     } finally {
-      setLoading(false);
+      setOtpLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    try {
+      setOtpLoading(true);
+      setOtpError('');
+      
+      await authAPI.sendRegistrationOTP({ email: registrationData.email });
+      setMessage('OTP resent successfully! Please check your email.');
+      
+    } catch (error) {
+      setOtpError(error.response?.data?.error || 'Failed to resend OTP. Please try again.');
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -174,7 +229,7 @@ const StudentRegister = () => {
       <div className="w-100" style={{ maxWidth: '600px' }}>
         <Card className="shadow">
           <Card.Header className="text-center">
-            <h3 className="mb-0">🎓 Student Registration</h3>
+            <h3 className="mb-0">Student Registration</h3>
             <p className="text-muted mb-0">Join SAT Portal</p>
           </Card.Header>
           <Card.Body className="p-4">
@@ -403,11 +458,70 @@ const StudentRegister = () => {
                     Login here
                   </Link>
                 </p>
+                <p className="mb-0 mt-2">
+                  <Link to="/login" className="text-decoration-none">
+                    Forgot Password?
+                  </Link>
+                </p>
               </div>
             </Form>
           </Card.Body>
         </Card>
       </div>
+
+      {/* OTP Verification Modal */}
+      <Modal show={showOTPModal} onHide={() => setShowOTPModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Email Verification</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="mb-3">
+            We've sent a verification code to <strong>{registrationData?.email}</strong>
+          </p>
+          <p className="text-muted small mb-3">
+            Please check your email and enter the 6-digit code below.
+          </p>
+          
+          {otpError && (
+            <Alert variant="danger" className="mb-3">
+              {otpError}
+            </Alert>
+          )}
+          
+          <Form onSubmit={handleOTPSubmit}>
+            <Form.Group className="mb-3">
+              <Form.Label>Verification Code</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Enter 6-digit OTP"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                maxLength={6}
+                autoComplete="off"
+              />
+            </Form.Group>
+            
+            <div className="d-grid gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={otpLoading}
+              >
+                {otpLoading ? 'Verifying...' : 'Verify & Complete Registration'}
+              </Button>
+              
+              <Button
+                type="button"
+                variant="outline-secondary"
+                onClick={handleResendOTP}
+                disabled={otpLoading}
+              >
+                {otpLoading ? 'Sending...' : 'Resend OTP'}
+              </Button>
+            </div>
+          </Form>
+        </Modal.Body>
+      </Modal>
     </div>
   );
 };

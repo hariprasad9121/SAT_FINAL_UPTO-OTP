@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Form, Button, Alert, Tabs, Tab } from 'react-bootstrap';
+import { Card, Form, Button, Alert, Tabs, Tab, Modal } from 'react-bootstrap';
 import { Link, useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 
@@ -13,6 +13,19 @@ const Login = ({ onLogin }) => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordData, setResetPasswordData] = useState({
+    email: '',
+    otp: '',
+    newPassword: '',
+    confirmNewPassword: ''
+  });
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [forgotPasswordError, setForgotPasswordError] = useState('');
+  const [resetPasswordError, setResetPasswordError] = useState('');
 
   const handleInputChange = (userType, field, value) => {
     setFormData(prev => ({
@@ -92,12 +105,91 @@ const Login = ({ onLogin }) => {
     }
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    
+    if (!forgotPasswordEmail.trim()) {
+      setForgotPasswordError('Please enter your email address');
+      return;
+    }
+
+    try {
+      setForgotPasswordLoading(true);
+      setForgotPasswordError('');
+      
+      await authAPI.forgotPassword({ email: forgotPasswordEmail.trim() });
+      
+      setShowForgotPasswordModal(false);
+      setResetPasswordData(prev => ({ ...prev, email: forgotPasswordEmail.trim() }));
+      setShowResetPasswordModal(true);
+      setMessage('Password reset OTP sent to your email! Please check and enter the verification code.');
+      
+    } catch (error) {
+      setForgotPasswordError(error.response?.data?.error || 'Failed to send reset OTP. Please try again.');
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    
+    if (!resetPasswordData.otp.trim()) {
+      setResetPasswordError('Please enter the OTP');
+      return;
+    }
+    
+    if (!resetPasswordData.newPassword) {
+      setResetPasswordError('Please enter a new password');
+      return;
+    }
+    
+    if (resetPasswordData.newPassword !== resetPasswordData.confirmNewPassword) {
+      setResetPasswordError('Passwords do not match');
+      return;
+    }
+
+    try {
+      setResetPasswordLoading(true);
+      setResetPasswordError('');
+      
+      await authAPI.resetPassword({
+        email: resetPasswordData.email,
+        otp: resetPasswordData.otp.trim(),
+        new_password: resetPasswordData.newPassword
+      });
+      
+      setShowResetPasswordModal(false);
+      setResetPasswordData({
+        email: '',
+        otp: '',
+        newPassword: '',
+        confirmNewPassword: ''
+      });
+      setMessage('Password reset successfully! You can now login with your new password.');
+      
+    } catch (error) {
+      setResetPasswordError(error.response?.data?.error || 'Password reset failed. Please try again.');
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
+
   return (
-    <div className="d-flex justify-content-center align-items-center min-vh-100">
+    <div 
+      className="d-flex justify-content-center align-items-center min-vh-100 login-background"
+      style={{
+        backgroundImage: 'url(/background-image.jpg)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed'
+      }}
+    >
       <div className="w-100" style={{ maxWidth: '500px' }}>
         <Card className="shadow">
           <Card.Header className="text-center">
-            <h3 className="mb-0">🎓 SAT Portal Login</h3>
+            <h3 className="mb-0">SAT Portal Login</h3>
             <p className="text-muted mb-0">Student Achievement Tracker</p>
           </Card.Header>
           <Card.Body className="p-4">
@@ -112,7 +204,7 @@ const Login = ({ onLogin }) => {
               onSelect={(k) => setActiveTab(k)}
               className="mb-4"
             >
-              <Tab eventKey="student" title="👨‍🎓 Student Login">
+              <Tab eventKey="student" title="Student Login">
                 <Form autoComplete="off">
                   <Form.Group className="mb-3">
                     <Form.Label>Roll Number</Form.Label>
@@ -154,10 +246,20 @@ const Login = ({ onLogin }) => {
                   >
                     {loading ? 'Logging in...' : 'Student Login'}
                   </Button>
+                  
+                  <div className="text-center">
+                    <Button
+                      variant="link"
+                      className="text-decoration-none p-0"
+                      onClick={() => setShowForgotPasswordModal(true)}
+                    >
+                      Forgot Password?
+                    </Button>
+                  </div>
                 </Form>
               </Tab>
 
-              <Tab eventKey="admin" title="👨‍💼 Admin Login">
+              <Tab eventKey="admin" title="Admin Login">
                 <Form autoComplete="off">
                   <Form.Group className="mb-3">
                     <Form.Label>Employee ID</Form.Label>
@@ -214,6 +316,117 @@ const Login = ({ onLogin }) => {
           </Card.Body>
         </Card>
       </div>
+
+      {/* Forgot Password Modal */}
+      <Modal show={showForgotPasswordModal} onHide={() => setShowForgotPasswordModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Forgot Password</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="mb-3">
+            Enter your email address and we'll send you a password reset code.
+          </p>
+          
+          {forgotPasswordError && (
+            <Alert variant="danger" className="mb-3">
+              {forgotPasswordError}
+            </Alert>
+          )}
+          
+          <Form onSubmit={handleForgotPassword}>
+            <Form.Group className="mb-3">
+              <Form.Label>Email Address</Form.Label>
+              <Form.Control
+                type="email"
+                placeholder="Enter your email address"
+                value={forgotPasswordEmail}
+                onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                autoComplete="off"
+              />
+            </Form.Group>
+            
+            <div className="d-grid gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={forgotPasswordLoading}
+              >
+                {forgotPasswordLoading ? 'Sending...' : 'Send Reset Code'}
+              </Button>
+            </div>
+          </Form>
+        </Modal.Body>
+      </Modal>
+
+      {/* Reset Password Modal */}
+      <Modal show={showResetPasswordModal} onHide={() => setShowResetPasswordModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Reset Password</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="mb-3">
+            We've sent a reset code to <strong>{resetPasswordData.email}</strong>
+          </p>
+          <p className="text-muted small mb-3">
+            Please check your email and enter the 6-digit code below, then set your new password.
+          </p>
+          
+          {resetPasswordError && (
+            <Alert variant="danger" className="mb-3">
+              {resetPasswordError}
+            </Alert>
+          )}
+          
+          <Form onSubmit={handleResetPassword}>
+            <Form.Group className="mb-3">
+              <Form.Label>Reset Code</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Enter 6-digit OTP"
+                value={resetPasswordData.otp}
+                onChange={(e) => setResetPasswordData(prev => ({ ...prev, otp: e.target.value }))}
+                maxLength={6}
+                autoComplete="off"
+              />
+            </Form.Group>
+            
+            <Form.Group className="mb-3">
+              <Form.Label>New Password</Form.Label>
+              <Form.Control
+                type="password"
+                placeholder="Enter new password"
+                value={resetPasswordData.newPassword}
+                onChange={(e) => setResetPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                autoComplete="new-password"
+              />
+              <Form.Text className="text-muted">
+                Must be at least 8 characters with uppercase, lowercase, and number
+              </Form.Text>
+            </Form.Group>
+            
+            <Form.Group className="mb-3">
+              <Form.Label>Confirm New Password</Form.Label>
+              <Form.Control
+                type="password"
+                placeholder="Confirm new password"
+                value={resetPasswordData.confirmNewPassword}
+                onChange={(e) => setResetPasswordData(prev => ({ ...prev, confirmNewPassword: e.target.value }))}
+                autoComplete="new-password"
+              />
+            </Form.Group>
+            
+            <div className="d-grid gap-2">
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={resetPasswordLoading}
+              >
+                {resetPasswordLoading ? 'Resetting...' : 'Reset Password'}
+              </Button>
+            </div>
+          </Form>
+        </Modal.Body>
+      </Modal>
     </div>
   );
 };

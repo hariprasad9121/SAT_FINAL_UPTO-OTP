@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Row, Col, Card, Button, Table, Badge, Form, Alert, Spinner,
   Modal, Dropdown, Tabs, Tab, ButtonGroup
@@ -22,8 +22,6 @@ const AdminDashboard = ({ user }) => {
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState('certificates');
 
-  const COLORS = ['#FF4500', '#28A745', '#FFC107', '#DC3545', '#17A2B8'];
-
   // Admin credentials mapping
   const adminCredentials = {
     'admin@cse': { branch: 'COMPUTER SCIENCE AND ENGINEERING', password: 'Cse@srit' },
@@ -37,16 +35,12 @@ const AdminDashboard = ({ user }) => {
 
   const userBranch = adminCredentials[user?.employee_id]?.branch;
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       const [dashboardRes, analyticsRes] = await Promise.all([
-        adminAPI.getDashboard(),
-        adminAPI.getAnalytics()
+        adminAPI.getDashboard({ branch: userBranch }),
+        adminAPI.getAnalytics({ branch: userBranch })
       ]);
       
       setDashboardData(dashboardRes.data);
@@ -56,7 +50,11 @@ const AdminDashboard = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userBranch]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   const loadCertificates = async (filters = {}) => {
     try {
@@ -181,7 +179,8 @@ const AdminDashboard = ({ user }) => {
       link.click();
       link.remove();
     } catch (error) {
-      setMessage('Failed to generate report.');
+      const errorMessage = error.response?.data?.error || 'Failed to generate report.';
+      setMessage(errorMessage);
     }
   };
 
@@ -236,7 +235,7 @@ const AdminDashboard = ({ user }) => {
     <div>
       <Row className="mb-4">
         <Col>
-          <h2>👨‍💼 Admin Dashboard</h2>
+          <h2>Admin Dashboard</h2>
           <p className="text-muted">Welcome back, {user?.name}!</p>
           {userBranch && (
             <p className="text-info">
@@ -293,7 +292,7 @@ const AdminDashboard = ({ user }) => {
       </Row>
 
       <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
-        <Tab eventKey="certificates" title="📋 Manage Certificates">
+        <Tab eventKey="certificates" title="Manage Certificates">
           <Card className="dashboard-card">
             <Card.Header>
               <Row className="align-items-center">
@@ -308,7 +307,7 @@ const AdminDashboard = ({ user }) => {
                       onClick={() => handleBulkAction('approve')}
                       disabled={updating}
                     >
-                      ✅ Approve All
+                       Approve All
                     </Button>
                     <Button 
                       variant="danger" 
@@ -316,18 +315,29 @@ const AdminDashboard = ({ user }) => {
                       onClick={() => handleBulkAction('reject')}
                       disabled={updating}
                     >
-                      ❌ Reject All
+                       Reject All
+                    </Button>
+                    <Button 
+                      variant="info" 
+                      size="sm"
+                      onClick={() => {
+                        loadCertificates(filters);
+                        loadDashboardData();
+                      }}
+                      disabled={loading}
+                    >
+                       Refresh
                     </Button>
                     <Dropdown>
                       <Dropdown.Toggle variant="primary" size="sm">
-                        📊 Download Report
+                         Download Report
                       </Dropdown.Toggle>
                       <Dropdown.Menu>
                         <Dropdown.Item onClick={() => handleReportDownload('excel')}>
-                          📄 Excel Report
+                           Excel Report
                         </Dropdown.Item>
                         <Dropdown.Item onClick={() => handleReportDownload('pdf')}>
-                          📄 PDF Report
+                           PDF Report
                         </Dropdown.Item>
                       </Dropdown.Menu>
                     </Dropdown>
@@ -489,7 +499,7 @@ const AdminDashboard = ({ user }) => {
           </Card>
         </Tab>
 
-        <Tab eventKey="analytics" title="📊 Analytics">
+        <Tab eventKey="analytics" title="Analytics">
           <Card className="dashboard-card">
             <Card.Header>
               <Row className="align-items-center">
@@ -604,7 +614,7 @@ const AdminDashboard = ({ user }) => {
           </Card>
         </Tab>
 
-        <Tab eventKey="students" title="👥 Student Data">
+        <Tab eventKey="students" title="Student Data">
           <Card className="dashboard-card">
             <Card.Header>
               <Row className="align-items-center">
@@ -621,14 +631,14 @@ const AdminDashboard = ({ user }) => {
                     onClick={() => loadStudents(studentFilters)}
                     className="me-2"
                   >
-                    🔄 Refresh Data
+                    Refresh Data
                   </Button>
                   <Button 
                     variant="success" 
                     size="sm"
                     onClick={() => handleStudentsDownload()}
                   >
-                    📊 Download Excel
+                    Download Excel
                   </Button>
                 </Col>
               </Row>
@@ -674,7 +684,7 @@ const AdminDashboard = ({ user }) => {
                   <div className="d-flex align-items-end h-100">
                     <div className="text-muted">
                       <small>
-                        📊 Showing {students.length} students 
+                        Showing {students.length} students 
                         {studentFilters.year && ` in Year ${studentFilters.year}`}
                         {studentFilters.section && ` Section ${studentFilters.section}`}
                         {userBranch && ` from ${userBranch}`}

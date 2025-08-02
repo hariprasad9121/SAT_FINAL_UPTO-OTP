@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Row, Col, Card, Button, Form, Modal, Alert, Badge, 
   Table, Spinner
@@ -51,11 +51,7 @@ const StudentDashboard = ({ user }) => {
   const sections = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
   const years = ['I', 'II', 'III', 'IV'];
 
-  useEffect(() => {
-    loadData();
-  }, [user.id]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [profileRes, certificatesRes] = await Promise.all([
@@ -70,7 +66,11 @@ const StudentDashboard = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user.id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -172,7 +172,7 @@ const StudentDashboard = ({ user }) => {
     <div>
       <Row className="mb-4">
         <Col>
-          <h2>👨‍🎓 Student Dashboard</h2>
+          <h2>Student Dashboard</h2>
           <p className="text-muted">Welcome back, {profile?.name}!</p>
         </Col>
       </Row>
@@ -192,7 +192,7 @@ const StudentDashboard = ({ user }) => {
         <Col lg={4} md={6} className="mb-4">
           <Card className="dashboard-card h-100">
             <Card.Header className="d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">📋 Profile Information</h5>
+              <h5 className="mb-0">Profile Information</h5>
               {profile && (
                 <Button 
                   variant="outline-primary" 
@@ -244,7 +244,7 @@ const StudentDashboard = ({ user }) => {
         <Col lg={4} md={6} className="mb-4">
           <Card className="dashboard-card h-100">
             <Card.Header>
-              <h5 className="mb-0">📊 Certificate Statistics</h5>
+              <h5 className="mb-0">Certificate Statistics</h5>
             </Card.Header>
             <Card.Body>
               <div className="text-center">
@@ -281,7 +281,7 @@ const StudentDashboard = ({ user }) => {
         <Col lg={4} md={12} className="mb-4">
           <Card className="dashboard-card h-100">
             <Card.Header>
-              <h5 className="mb-0">📤 Upload Certificate</h5>
+              <h5 className="mb-0">Upload Certificate</h5>
             </Card.Header>
             <Card.Body className="d-flex flex-column">
               <p className="text-muted mb-3">
@@ -292,7 +292,7 @@ const StudentDashboard = ({ user }) => {
                 className="mt-auto"
                 onClick={() => setUploadModal(true)}
               >
-                📄 Upload New Certificate
+                Upload New Certificate
               </Button>
             </Card.Body>
           </Card>
@@ -304,7 +304,7 @@ const StudentDashboard = ({ user }) => {
         <Col>
           <Card className="dashboard-card">
             <Card.Header>
-              <h5 className="mb-0">📋 My Certificates</h5>
+              <h5 className="mb-0">My Certificates</h5>
             </Card.Header>
             <Card.Body>
               {certificates.length === 0 ? (
@@ -358,7 +358,7 @@ const StudentDashboard = ({ user }) => {
       {/* Upload Modal */}
       <Modal show={uploadModal} onHide={() => setUploadModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>📤 Upload Certificate</Modal.Title>
+          <Modal.Title>Upload Certificate</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form>
@@ -556,7 +556,7 @@ const StudentDashboard = ({ user }) => {
       {/* View Certificate Modal */}
       <Modal show={viewCertificateModal} onHide={() => setViewCertificateModal(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>📄 Certificate Details</Modal.Title>
+          <Modal.Title>Certificate Details</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {selectedCertificate && (
@@ -581,19 +581,22 @@ const StudentDashboard = ({ user }) => {
                       variant="outline-primary" 
                       size="sm"
                       className="me-2"
-                      onClick={() => window.open(`/api/student/certificate/${selectedCertificate.id}/download`, '_blank')}
+                      onClick={() => {
+                        const url = `http://localhost:5000/api/student/certificate/${selectedCertificate.id}/download`;
+                        window.open(url, '_blank');
+                      }}
                     >
-                      📄 Download Certificate
+                      Download Certificate
                     </Button>
                     <Button 
                       variant="outline-secondary" 
                       size="sm"
                       onClick={() => {
-                        const url = `/api/student/certificate/${selectedCertificate.id}/download`;
+                        const url = `http://localhost:5000/api/student/certificate/${selectedCertificate.id}/view`;
                         window.open(url, '_blank');
                       }}
                     >
-                      👁️ View Certificate
+                      View Certificate
                     </Button>
                   </div>
                 )}
