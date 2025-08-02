@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file, current_app
 from utils import validate_email, format_datetime
 import os
 from datetime import datetime
@@ -82,6 +82,9 @@ def upload_certificate():
         db, Student, Certificate = get_models()
         student_id = request.form.get('student_id')
         event_type = request.form.get('event_type')
+        certificate_name = request.form.get('certificate_name', '')
+        start_date = request.form.get('start_date', '')
+        end_date = request.form.get('end_date', '')
         
         if not all([student_id, event_type]):
             return jsonify({'error': 'Student ID and event type are required'}), 400
@@ -102,6 +105,14 @@ def upload_certificate():
         file_path = os.path.join('uploads', filename)
         file.save(file_path)
         
+        # Parse dates
+        start_date_obj = None
+        end_date_obj = None
+        if start_date:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        if end_date:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
         # Create certificate record
         certificate = Certificate(
             student_id=student.id,
@@ -110,6 +121,9 @@ def upload_certificate():
             branch=student.branch,
             year=student.year,
             event_type=event_type,
+            certificate_name=certificate_name,
+            start_date=start_date_obj,
+            end_date=end_date_obj,
             file_path=file_path,
             status='Pending'
         )
@@ -136,13 +150,38 @@ def get_student_certificates():
         for cert in certificates:
             certificate_list.append({
                 'id': cert.id,
+                'certificate_name': cert.certificate_name,
                 'event_type': cert.event_type,
+                'start_date': cert.start_date.strftime('%Y-%m-%d') if cert.start_date else None,
+                'end_date': cert.end_date.strftime('%Y-%m-%d') if cert.end_date else None,
                 'status': cert.status,
                 'uploaded_at': format_datetime(cert.uploaded_at),
                 'file_path': cert.file_path
             })
         
         return jsonify({'certificates': certificate_list}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500 
+
+@student_bp.route('/certificate/<int:certificate_id>/download', methods=['GET'])
+def download_certificate(certificate_id):
+    try:
+        db, Student, Certificate = get_models()
+        
+        certificate = Certificate.query.get(certificate_id)
+        if not certificate:
+            return jsonify({'error': 'Certificate not found'}), 404
+        
+        if not os.path.exists(certificate.file_path):
+            return jsonify({'error': 'Certificate file not found'}), 404
+        
+        return send_file(
+            certificate.file_path,
+            as_attachment=True,
+            download_name=os.path.basename(certificate.file_path),
+            mimetype='application/pdf'
+        )
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500 

@@ -576,13 +576,26 @@ const StudentDashboard = ({ user }) => {
               <div className="mt-3">
                 <p><strong>Certificate File:</strong></p>
                 {selectedCertificate.file_path && (
-                  <Button 
-                    variant="outline-primary" 
-                    size="sm"
-                    onClick={() => window.open(`/api/student/certificate/${selectedCertificate.id}/download`, '_blank')}
-                  >
-                    📄 Download Certificate
-                  </Button>
+                  <div>
+                    <Button 
+                      variant="outline-primary" 
+                      size="sm"
+                      className="me-2"
+                      onClick={() => window.open(`/api/student/certificate/${selectedCertificate.id}/download`, '_blank')}
+                    >
+                      📄 Download Certificate
+                    </Button>
+                    <Button 
+                      variant="outline-secondary" 
+                      size="sm"
+                      onClick={() => {
+                        const url = `/api/student/certificate/${selectedCertificate.id}/download`;
+                        window.open(url, '_blank');
+                      }}
+                    >
+                      👁️ View Certificate
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

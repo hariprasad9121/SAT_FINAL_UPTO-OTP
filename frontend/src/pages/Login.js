@@ -74,6 +74,12 @@ const Login = ({ onLogin }) => {
       const userData = response.data;
       onLogin(userData[userType], userType);
       
+      // Clear form data after successful login
+      setFormData({
+        student: { rollnumber: '', password: '' },
+        admin: { employee_id: '', password: '' }
+      });
+      
       setMessage('Login successful! Redirecting...');
       setTimeout(() => {
         navigate(userType === 'student' ? '/student/dashboard' : '/admin/dashboard');
@@ -107,7 +113,7 @@ const Login = ({ onLogin }) => {
               className="mb-4"
             >
               <Tab eventKey="student" title="👨‍🎓 Student Login">
-                <Form>
+                <Form autoComplete="off">
                   <Form.Group className="mb-3">
                     <Form.Label>Roll Number</Form.Label>
                     <Form.Control
@@ -117,6 +123,7 @@ const Login = ({ onLogin }) => {
                       onChange={(e) => handleInputChange('student', 'rollnumber', e.target.value)}
                       onKeyPress={(e) => handleKeyPress(e, 'student')}
                       isInvalid={!!errors.rollnumber}
+                      autoComplete="off"
                     />
                     <Form.Control.Feedback type="invalid">
                       {errors.rollnumber}
@@ -132,6 +139,7 @@ const Login = ({ onLogin }) => {
                       onChange={(e) => handleInputChange('student', 'password', e.target.value)}
                       onKeyPress={(e) => handleKeyPress(e, 'student')}
                       isInvalid={!!errors.password}
+                      autoComplete="off"
                     />
                     <Form.Control.Feedback type="invalid">
                       {errors.password}
@@ -150,7 +158,7 @@ const Login = ({ onLogin }) => {
               </Tab>
 
               <Tab eventKey="admin" title="👨‍💼 Admin Login">
-                <Form>
+                <Form autoComplete="off">
                   <Form.Group className="mb-3">
                     <Form.Label>Employee ID</Form.Label>
                     <Form.Control
@@ -160,6 +168,7 @@ const Login = ({ onLogin }) => {
                       onChange={(e) => handleInputChange('admin', 'employee_id', e.target.value)}
                       onKeyPress={(e) => handleKeyPress(e, 'admin')}
                       isInvalid={!!errors.employee_id}
+                      autoComplete="off"
                     />
                     <Form.Control.Feedback type="invalid">
                       {errors.employee_id}
@@ -175,6 +184,7 @@ const Login = ({ onLogin }) => {
                       onChange={(e) => handleInputChange('admin', 'password', e.target.value)}
                       onKeyPress={(e) => handleKeyPress(e, 'admin')}
                       isInvalid={!!errors.password}
+                      autoComplete="off"
                     />
                     <Form.Control.Feedback type="invalid">
                       {errors.password}

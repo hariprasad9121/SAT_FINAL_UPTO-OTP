@@ -4,6 +4,7 @@ import { Container } from 'react-bootstrap';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import StudentDashboard from './pages/StudentDashboard';
+import StudentCertificates from './pages/StudentCertificates';
 import AdminDashboard from './pages/AdminDashboard';
 import StudentRegister from './pages/StudentRegister';
 import './App.css';
@@ -116,7 +117,7 @@ function App() {
               path="/student/certificates" 
               element={
                 user && userType === 'student' ? (
-                  <StudentDashboard user={user} />
+                  <StudentCertificates user={user} />
                 ) : (
                   <Navigate to="/login" />
                 )

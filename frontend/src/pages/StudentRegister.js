@@ -143,6 +143,20 @@ const StudentRegister = () => {
 
       await authAPI.studentRegister(registrationData);
       
+      // Clear form data after successful registration
+      setFormData({
+        name: '',
+        rollnumber: '',
+        email: '',
+        password: '',
+        confirmPassword: '',
+        phone: '',
+        gender: '',
+        branch: '',
+        section: '',
+        year: ''
+      });
+      
       setMessage('Registration successful! Redirecting to login...');
       setTimeout(() => {
         navigate('/login');
@@ -170,7 +184,7 @@ const StudentRegister = () => {
               </Alert>
             )}
 
-            <Form onSubmit={handleSubmit}>
+            <Form onSubmit={handleSubmit} autoComplete="off">
               <Row>
                 <Col md={6}>
                   <Form.Group className="mb-3">

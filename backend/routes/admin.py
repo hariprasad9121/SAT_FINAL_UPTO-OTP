@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, send_file
 from utils import format_datetime
 import openpyxl
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
@@ -87,9 +87,13 @@ def get_admin_certificates():
                 'branch': cert.branch,
                 'section': student.section if student else 'N/A',
                 'year': cert.year,
+                'certificate_name': cert.certificate_name,
                 'event_type': cert.event_type,
+                'start_date': cert.start_date,
+                'end_date': cert.end_date,
                 'status': cert.status,
-                'uploaded_at': format_datetime(cert.uploaded_at)
+                'uploaded_at': format_datetime(cert.uploaded_at),
+                'file_path': cert.file_path
             })
         
         return jsonify({'certificates': certificate_list}), 200
@@ -196,12 +200,13 @@ def generate_excel_report(certificates):
     ws.title = "Certificates Report"
     
     # Headers
-    headers = ['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Event Type', 'Status', 'Uploaded At']
+    headers = ['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Event Type', 'Certificate Name', 'Start Date', 'End Date', 'Status', 'Uploaded At', 'Certificate PDF']
     ws.append(headers)
     
     # Data
     for cert in certificates:
         student = Student.query.get(cert.student_id)
+        certificate_pdf_link = f"http://localhost:5000/api/student/certificate/{cert.id}/download" if cert.file_path else "N/A"
         ws.append([
             cert.id,
             cert.name,
@@ -210,8 +215,12 @@ def generate_excel_report(certificates):
             cert.branch,
             cert.year,
             cert.event_type,
+            cert.certificate_name or 'N/A',
+            cert.start_date or 'N/A',
+            cert.end_date or 'N/A',
             cert.status,
-            format_datetime(cert.uploaded_at)
+            format_datetime(cert.uploaded_at),
+            certificate_pdf_link
         ])
     
     # Save to bytes
@@ -229,7 +238,7 @@ def generate_excel_report(certificates):
 def generate_pdf_report(certificates):
     db, Student, Certificate = get_models()
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
     elements = []
     
     # Title
@@ -238,10 +247,11 @@ def generate_pdf_report(certificates):
     elements.append(title)
     
     # Data
-    data = [['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Event Type', 'Status', 'Uploaded At']]
+    data = [['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Event Type', 'Certificate Name', 'Start Date', 'End Date', 'Status', 'Uploaded At', 'Certificate PDF']]
     
     for cert in certificates:
         student = Student.query.get(cert.student_id)
+        certificate_pdf_link = f"http://localhost:5000/api/student/certificate/{cert.id}/download" if cert.file_path else "N/A"
         data.append([
             str(cert.id),
             cert.name,
@@ -250,8 +260,12 @@ def generate_pdf_report(certificates):
             cert.branch,
             str(cert.year),
             cert.event_type,
+            cert.certificate_name or 'N/A',
+            cert.start_date or 'N/A',
+            cert.end_date or 'N/A',
             cert.status,
-            format_datetime(cert.uploaded_at)
+            format_datetime(cert.uploaded_at),
+            certificate_pdf_link
         ])
     
     table = Table(data)
@@ -260,12 +274,12 @@ def generate_pdf_report(certificates):
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 14),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
         ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
         ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 12),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
         ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
     

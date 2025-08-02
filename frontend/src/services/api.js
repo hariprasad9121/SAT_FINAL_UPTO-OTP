@@ -29,7 +29,9 @@ export const studentAPI = {
     });
   },
   getCertificates: (studentId) => api.get(`/student/certificates?student_id=${studentId}`),
-  downloadCertificate: (certificateId) => api.get(`/student/certificate/${certificateId}/download`),
+  downloadCertificate: (certificateId) => api.get(`/student/certificate/${certificateId}/download`, {
+    responseType: 'blob',
+  }),
 };
 
 // Admin API

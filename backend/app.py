@@ -387,6 +387,26 @@ def get_student_certificates():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/student/certificate/<int:certificate_id>/download', methods=['GET'])
+def download_certificate(certificate_id):
+    try:
+        certificate = db.session.get(Certificate, certificate_id)
+        if not certificate:
+            return jsonify({'error': 'Certificate not found'}), 404
+        
+        if not os.path.exists(certificate.file_path):
+            return jsonify({'error': 'Certificate file not found'}), 404
+        
+        return send_file(
+            certificate.file_path,
+            as_attachment=True,
+            download_name=os.path.basename(certificate.file_path),
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/dashboard', methods=['GET'])
 def admin_dashboard():
     try:
@@ -463,7 +483,8 @@ def get_admin_certificates():
                 'start_date': cert.start_date.strftime('%Y-%m-%d') if cert.start_date else None,
                 'end_date': cert.end_date.strftime('%Y-%m-%d') if cert.end_date else None,
                 'status': cert.status,
-                'uploaded_at': cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')
+                'uploaded_at': cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'file_path': cert.file_path
             })
         
         return jsonify({'certificates': certificate_list}), 200
@@ -696,12 +717,14 @@ def generate_excel_report(certificates):
     ws.title = "Certificates Report"
     
     # Headers
-    headers = ['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Certificate Name', 'Event Type', 'Start Date', 'End Date', 'Status', 'Uploaded At']
+    headers = ['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Certificate Name', 'Event Type', 'Start Date', 'End Date', 'Status', 'Uploaded At', 'Certificate PDF']
     ws.append(headers)
     
     # Data
     for cert in certificates:
         student = Student.query.get(cert.student_id)
+        # Create a proper download link that will work when the Excel file is opened
+        certificate_pdf_link = f"=HYPERLINK(\"http://localhost:5000/api/student/certificate/{cert.id}/download\", \"Download Certificate\")" if cert.file_path else "N/A"
         ws.append([
             cert.id,
             cert.name,
@@ -714,7 +737,8 @@ def generate_excel_report(certificates):
             cert.start_date.strftime('%Y-%m-%d') if cert.start_date else 'N/A',
             cert.end_date.strftime('%Y-%m-%d') if cert.end_date else 'N/A',
             cert.status,
-            cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')
+            cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
+            certificate_pdf_link
         ])
     
     # Save to bytes
@@ -742,10 +766,12 @@ def generate_pdf_report(certificates):
     elements.append(title)
     
     # Data
-    data = [['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Certificate Name', 'Event Type', 'Status', 'Uploaded At']]
+    data = [['ID', 'Student Name', 'Roll Number', 'Email', 'Branch', 'Year', 'Certificate Name', 'Event Type', 'Start Date', 'End Date', 'Status', 'Uploaded At', 'Certificate PDF']]
     
     for cert in certificates:
         student = Student.query.get(cert.student_id)
+        # Create a clickable download link for PDF
+        certificate_pdf_link = f"Download Certificate (ID: {cert.id})" if cert.file_path else "N/A"
         data.append([
             str(cert.id),
             cert.name,
@@ -755,8 +781,11 @@ def generate_pdf_report(certificates):
             str(cert.year),
             cert.certificate_name or cert.event_type,
             cert.event_type,
+            cert.start_date.strftime('%Y-%m-%d') if cert.start_date else 'N/A',
+            cert.end_date.strftime('%Y-%m-%d') if cert.end_date else 'N/A',
             cert.status,
-            cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')
+            cert.uploaded_at.strftime('%Y-%m-%d %H:%M:%S'),
+            certificate_pdf_link
         ])
     
     table = Table(data)
@@ -797,15 +826,7 @@ def generate_pdf_report(certificates):
         download_name='certificates_report.pdf'
     )
 
-# Import routes
-from routes.auth import auth_bp
-from routes.student import student_bp
-from routes.admin import admin_bp
 
-# Register blueprints
-app.register_blueprint(auth_bp, url_prefix='/api/auth')
-app.register_blueprint(student_bp, url_prefix='/api/student')
-app.register_blueprint(admin_bp, url_prefix='/api/admin')
 
 if __name__ == '__main__':
     with app.app_context():

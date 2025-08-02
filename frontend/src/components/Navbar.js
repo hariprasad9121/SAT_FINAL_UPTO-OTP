@@ -32,21 +32,8 @@ const NavigationBar = ({ user, userType, onLogout }) => {
             </Nav.Link>
             {userType === 'student' && (
               <Nav.Link href="#" onClick={() => handleNavigation('/student/certificates')}>
-                My Certificates
+                Manage Certificates
               </Nav.Link>
-            )}
-            {userType === 'admin' && (
-              <>
-                <Nav.Link href="#" onClick={() => handleNavigation('/admin/certificates')}>
-                  Manage Certificates
-                </Nav.Link>
-                <Nav.Link href="#" onClick={() => handleNavigation('/admin/analytics')}>
-                  Analytics
-                </Nav.Link>
-                <Nav.Link href="#" onClick={() => handleNavigation('/admin/students')}>
-                  Student Data
-                </Nav.Link>
-              </>
             )}
           </Nav>
           

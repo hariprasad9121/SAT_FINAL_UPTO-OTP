@@ -450,6 +450,8 @@ const AdminDashboard = ({ user }) => {
                     <th>Branch</th>
                     <th>Certificate Name</th>
                     <th>Event Type</th>
+                    <th>Start Date</th>
+                    <th>End Date</th>
                     <th>Status</th>
                     <th>Uploaded At</th>
                     <th>Actions</th>
@@ -463,6 +465,8 @@ const AdminDashboard = ({ user }) => {
                       <td>{cert.branch}</td>
                       <td>{cert.certificate_name || cert.event_type}</td>
                       <td>{cert.event_type}</td>
+                      <td>{cert.start_date || 'N/A'}</td>
+                      <td>{cert.end_date || 'N/A'}</td>
                       <td>{getStatusBadge(cert.status)}</td>
                       <td>{cert.uploaded_at}</td>
                       <td>
@@ -722,8 +726,10 @@ const AdminDashboard = ({ user }) => {
           {selectedCertificate && (
             <div>
               <p><strong>Student:</strong> {selectedCertificate.student_name}</p>
-              <p><strong>Certificate:</strong> {selectedCertificate.certificate_name || selectedCertificate.event_type}</p>
+              <p><strong>Certificate Name:</strong> {selectedCertificate.certificate_name || selectedCertificate.event_type}</p>
               <p><strong>Event Type:</strong> {selectedCertificate.event_type}</p>
+              <p><strong>Start Date:</strong> {selectedCertificate.start_date || 'N/A'}</p>
+              <p><strong>End Date:</strong> {selectedCertificate.end_date || 'N/A'}</p>
               <p><strong>Current Status:</strong> {getStatusBadge(selectedCertificate.status)}</p>
               
               <Form.Group className="mt-3">
