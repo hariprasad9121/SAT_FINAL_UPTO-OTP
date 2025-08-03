@@ -5,8 +5,8 @@ load_dotenv()
 
 class Config:
     # Email configuration
-    MAIL_USERNAME = os.getenv('MAIL_USERNAME', 'your-email@gmail.com')
-    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD', 'your-app-password')
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME', 'anil172900@gmail.com')
+    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD', 'kfsa nvkp ntmj fgxh')
     
     # Auto-detect email provider and configure SMTP settings
     email_domain = MAIL_USERNAME.split('@')[-1].lower() if '@' in MAIL_USERNAME else 'gmail.com'
