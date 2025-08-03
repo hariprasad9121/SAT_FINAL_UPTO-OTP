@@ -38,6 +38,18 @@ export const studentAPI = {
   viewCertificate: (certificateId) => api.get(`/student/certificate/${certificateId}/view`, {
     responseType: 'blob',
   }),
+  // Form Management
+  getForms: (studentId) => api.get(`/student/forms?student_id=${studentId}`),
+  submitFormResponse: (formId, data) => api.post(`/student/forms/${formId}/submit`, data),
+  uploadFormFile: (formId, formData) => {
+    return api.post(`/student/forms/${formId}/upload-file`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  getFormNotifications: (studentId) => api.get(`/student/forms/notifications?student_id=${studentId}`),
+  getFormResponse: (formId, studentId) => api.get(`/student/forms/${formId}/response?student_id=${studentId}`),
 };
 
 // Admin API
@@ -72,6 +84,15 @@ export const adminAPI = {
       responseType: 'blob',
     });
   },
+  // Form Management
+  createForm: (data) => api.post('/admin/forms', data),
+  getForms: (adminId) => api.get(`/admin/forms?admin_id=${adminId}`),
+  getFormResponses: (formId, adminId) => api.get(`/admin/forms/${formId}/responses?admin_id=${adminId}`),
+  downloadFormResponses: (formId, adminId) => api.get(`/admin/forms/${formId}/responses/download?admin_id=${adminId}`, {
+    responseType: 'blob',
+  }),
+  sendDeadlineReminders: (adminId) => api.post(`/admin/forms/send-deadline-reminders?admin_id=${adminId}`),
+  deleteForm: (formId, adminId) => api.delete(`/admin/forms/${formId}?admin_id=${adminId}`),
 };
 
 export default api; 

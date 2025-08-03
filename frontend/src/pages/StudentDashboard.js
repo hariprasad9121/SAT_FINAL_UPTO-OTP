@@ -4,6 +4,7 @@ import {
   Table, Spinner
 } from 'react-bootstrap';
 import { studentAPI } from '../services/api';
+import StudentFormDisplay from '../components/StudentFormDisplay';
 
 const StudentDashboard = ({ user }) => {
   const [profile, setProfile] = useState(null);
@@ -32,6 +33,9 @@ const StudentDashboard = ({ user }) => {
   const [uploading, setUploading] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState('');
+  const [forms, setForms] = useState([]);
+  const [selectedForm, setSelectedForm] = useState(null);
+  const [showFormModal, setShowFormModal] = useState(false);
 
   const eventTypes = [
     'Internship', 'Hackathon', 'NPTEL', 'Workshop', 'Conference',
@@ -54,13 +58,15 @@ const StudentDashboard = ({ user }) => {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [profileRes, certificatesRes] = await Promise.all([
+      const [profileRes, certificatesRes, formsRes] = await Promise.all([
         studentAPI.getProfile(user.id),
-        studentAPI.getCertificates(user.id)
+        studentAPI.getCertificates(user.id),
+        studentAPI.getForms(user.id)
       ]);
       
       setProfile(profileRes.data);
       setCertificates(certificatesRes.data.certificates);
+      setForms(formsRes.data.forms);
     } catch (error) {
       setMessage('Failed to load data. Please try again.');
     } finally {
@@ -158,6 +164,16 @@ const StudentDashboard = ({ user }) => {
       'Rejected': 'danger'
     };
     return <Badge bg={variants[status]} className="status-badge">{status}</Badge>;
+  };
+
+  const handleViewForm = (form) => {
+    setSelectedForm(form);
+    setShowFormModal(true);
+  };
+
+  const handleFormSubmitted = () => {
+    loadData(); // Reload forms to update has_responded status
+    setShowFormModal(false); // Close the form modal after successful submission
   };
 
   if (loading) {
@@ -349,6 +365,69 @@ const StudentDashboard = ({ user }) => {
                     ))}
                   </tbody>
                 </Table>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Forms Section */}
+      <Row>
+        <Col>
+          <Card className="dashboard-card">
+            <Card.Header>
+              <h5 className="mb-0">Department Forms</h5>
+            </Card.Header>
+            <Card.Body>
+              {forms.length === 0 ? (
+                <div className="text-center py-4">
+                  <p className="text-muted">No forms available from your department admin.</p>
+                </div>
+              ) : (
+                <div>
+                  {forms.map((form) => (
+                    <Card key={form.id} className="mb-3">
+                      <Card.Body>
+                        <div className="d-flex justify-content-between align-items-start">
+                          <div>
+                            <h6 className="mb-1">{form.title}</h6>
+                            {form.description && (
+                              <p className="text-muted mb-2">{form.description}</p>
+                            )}
+                            <div className="mb-2">
+                              <small className="text-muted">
+                                <strong>Deadline:</strong> {new Date(form.deadline).toLocaleString()}
+                              </small>
+                            </div>
+                            <div className="mb-2">
+                              <small className="text-muted">
+                                <strong>Created:</strong> {new Date(form.created_at).toLocaleDateString()}
+                              </small>
+                            </div>
+                          </div>
+                          <div className="text-end">
+                            {form.has_responded ? (
+                              <Badge bg="success">Completed</Badge>
+                            ) : new Date(form.deadline) < new Date() ? (
+                              <Badge bg="danger">Deadline Passed</Badge>
+                            ) : (
+                              <Badge bg="warning">Pending</Badge>
+                            )}
+                            <br />
+                            <Button
+                              size="sm"
+                              variant="outline-primary"
+                              onClick={() => handleViewForm(form)}
+                              className="mt-2"
+                            >
+                              {form.has_responded ? 'View Form' : 'Fill Form'}
+                            </Button>
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  ))}
+                </div>
               )}
             </Card.Body>
           </Card>
@@ -609,6 +688,22 @@ const StudentDashboard = ({ user }) => {
             Close
           </Button>
         </Modal.Footer>
+      </Modal>
+
+      {/* Form Modal */}
+      <Modal show={showFormModal} onHide={() => setShowFormModal(false)} size="xl">
+        <Modal.Header closeButton>
+          <Modal.Title>{selectedForm?.title}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {selectedForm && (
+            <StudentFormDisplay
+              form={selectedForm}
+              studentId={user.id}
+              onFormSubmitted={handleFormSubmitted}
+            />
+          )}
+        </Modal.Body>
       </Modal>
     </div>
   );

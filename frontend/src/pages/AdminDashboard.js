@@ -5,6 +5,7 @@ import {
 } from 'react-bootstrap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { adminAPI } from '../services/api';
+import FormCreationModal from '../components/FormCreationModal';
 
 const AdminDashboard = ({ user }) => {
   const [dashboardData, setDashboardData] = useState(null);
@@ -21,6 +22,11 @@ const AdminDashboard = ({ user }) => {
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState('certificates');
+  const [forms, setForms] = useState([]);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [showResponsesModal, setShowResponsesModal] = useState(false);
+  const [selectedForm, setSelectedForm] = useState(null);
+  const [formResponses, setFormResponses] = useState([]);
 
   // Admin credentials mapping
   const adminCredentials = {
@@ -54,6 +60,7 @@ const AdminDashboard = ({ user }) => {
 
   useEffect(() => {
     loadDashboardData();
+    loadForms();
   }, [loadDashboardData]);
 
   const loadCertificates = async (filters = {}) => {
@@ -205,6 +212,70 @@ const AdminDashboard = ({ user }) => {
     }
   };
 
+  const loadForms = async () => {
+    try {
+      const response = await adminAPI.getForms(user.id);
+      setForms(response.data.forms);
+    } catch (error) {
+      setMessage('Failed to load forms.');
+    }
+  };
+
+  const handleViewResponses = async (formId) => {
+    try {
+      const response = await adminAPI.getFormResponses(formId, user.id);
+      setSelectedForm(response.data.form);
+      setFormResponses(response.data.responses);
+      setShowResponsesModal(true);
+    } catch (error) {
+      setMessage('Failed to load form responses.');
+    }
+  };
+
+  const handleDownloadResponses = async (formId) => {
+    try {
+      const response = await adminAPI.downloadFormResponses(formId, user.id);
+      
+      // Create blob and download
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = response.headers['content-disposition']?.split('filename=')[1] || 'form_responses.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      setMessage('Form responses downloaded successfully!');
+    } catch (error) {
+      setMessage('Failed to download form responses.');
+    }
+  };
+
+  const handleSendDeadlineReminders = async () => {
+    try {
+      const response = await adminAPI.sendDeadlineReminders(user.id);
+      setMessage(response.data.message);
+    } catch (error) {
+      setMessage('Failed to send deadline reminders.');
+    }
+  };
+
+  const handleDeleteForm = async (formId) => {
+    if (window.confirm('Are you sure you want to delete this form? This action cannot be undone and will delete all responses and uploaded files.')) {
+      try {
+        await adminAPI.deleteForm(formId, user.id);
+        setMessage('Form deleted successfully!');
+        loadForms(); // Reload the forms list
+      } catch (error) {
+        setMessage('Failed to delete form.');
+      }
+    }
+  };
+
   const getStatusBadge = (status) => {
     const variants = {
       'Pending': 'warning',
@@ -237,11 +308,11 @@ const AdminDashboard = ({ user }) => {
         <Col>
           <h2>Admin Dashboard</h2>
           <p className="text-muted">Welcome back, {user?.name}!</p>
-          {userBranch && (
-            <p className="text-info">
-              <strong>Department:</strong> {userBranch}
-            </p>
-          )}
+                     {userBranch && (
+             <p className="admin-department-text">
+               <strong>Department:</strong> {userBranch}
+             </p>
+           )}
         </Col>
       </Row>
 
@@ -302,24 +373,27 @@ const AdminDashboard = ({ user }) => {
                 <Col xs="auto">
                   <ButtonGroup>
                     <Button 
-                      variant="success" 
+                      variant="outline-secondary" 
                       size="sm"
+                      className="admin-action-btn"
                       onClick={() => handleBulkAction('approve')}
                       disabled={updating}
                     >
                        Approve All
                     </Button>
                     <Button 
-                      variant="danger" 
+                      variant="outline-secondary" 
                       size="sm"
+                      className="admin-action-btn"
                       onClick={() => handleBulkAction('reject')}
                       disabled={updating}
                     >
                        Reject All
                     </Button>
                     <Button 
-                      variant="info" 
+                      variant="outline-secondary" 
                       size="sm"
+                      className="admin-action-btn"
                       onClick={() => {
                         loadCertificates(filters);
                         loadDashboardData();
@@ -329,7 +403,7 @@ const AdminDashboard = ({ user }) => {
                        Refresh
                     </Button>
                     <Dropdown>
-                      <Dropdown.Toggle variant="primary" size="sm">
+                      <Dropdown.Toggle variant="outline-secondary" size="sm" className="admin-action-btn">
                          Download Report
                       </Dropdown.Toggle>
                       <Dropdown.Menu>
@@ -614,28 +688,110 @@ const AdminDashboard = ({ user }) => {
           </Card>
         </Tab>
 
-        <Tab eventKey="students" title="Student Data">
+                 <Tab eventKey="forms" title="Form Management">
+           <Card className="dashboard-card">
+             <Card.Header>
+               <Row className="align-items-center">
+                 <Col>
+                   <h5 className="mb-0">Form Management</h5>
+                   <p className="student-info-text mb-0">
+                     Create and manage forms for your department students
+                   </p>
+                 </Col>
+                 <Col xs="auto">
+                   <Button 
+                     variant="outline-warning" 
+                     size="sm"
+                     className="admin-action-btn"
+                     onClick={handleSendDeadlineReminders}
+                   >
+                     Send Deadline Reminders
+                   </Button>
+                   <Button 
+                     variant="outline-secondary" 
+                     size="sm"
+                     className="admin-action-btn"
+                     onClick={() => setShowFormModal(true)}
+                   >
+                     Create New Form
+                   </Button>
+                 </Col>
+               </Row>
+             </Card.Header>
+             <Card.Body>
+               <Table responsive>
+                 <thead>
+                   <tr>
+                     <th>Title</th>
+                     <th>Description</th>
+                     <th>Deadline</th>
+                     <th>Responses</th>
+                     <th>Status</th>
+                     <th>Actions</th>
+                     <th>Delete Responses</th>
+                   </tr>
+                 </thead>
+                 <tbody>
+                   {forms.map((form) => (
+                     <tr key={form.id}>
+                       <td>{form.title}</td>
+                       <td>{form.description}</td>
+                       <td>{new Date(form.deadline).toLocaleDateString()}</td>
+                       <td>{form.response_count}</td>
+                       <td>
+                         <Badge bg={form.is_active ? 'success' : 'secondary'}>
+                           {form.is_active ? 'Active' : 'Inactive'}
+                         </Badge>
+                       </td>
+                       <td>
+                         <Button 
+                           size="sm" 
+                           variant="outline-success"
+                           onClick={() => handleDownloadResponses(form.id)}
+                         >
+                           Download Responses
+                         </Button>
+                       </td>
+                       <td>
+                         <Button 
+                           size="sm" 
+                           variant="outline-danger"
+                           onClick={() => handleDeleteForm(form.id)}
+                         >
+                           Delete
+                         </Button>
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </Table>
+             </Card.Body>
+           </Card>
+         </Tab>
+
+         <Tab eventKey="students" title="Student Data">
           <Card className="dashboard-card">
             <Card.Header>
               <Row className="align-items-center">
                 <Col>
                   <h5 className="mb-0">Student Information</h5>
-                  <p className="text-muted mb-0">
-                    {userBranch ? `Showing students from ${userBranch}` : 'Showing all students'}
-                  </p>
+                                     <p className="student-info-text mb-0">
+                     {userBranch ? `Showing students from ${userBranch}` : 'Showing all students'}
+                   </p>
                 </Col>
                 <Col xs="auto">
                   <Button 
-                    variant="primary" 
+                    variant="outline-secondary" 
                     size="sm"
+                    className="admin-action-btn"
                     onClick={() => loadStudents(studentFilters)}
-                    className="me-2"
                   >
                     Refresh Data
                   </Button>
                   <Button 
-                    variant="success" 
+                    variant="outline-secondary" 
                     size="sm"
+                    className="admin-action-btn"
                     onClick={() => handleStudentsDownload()}
                   >
                     Download Excel
@@ -768,10 +924,80 @@ const AdminDashboard = ({ user }) => {
           >
             {updating ? 'Updating...' : 'Update Status'}
           </Button>
-        </Modal.Footer>
-      </Modal>
-    </div>
-  );
-};
+                 </Modal.Footer>
+       </Modal>
+
+       {/* Form Creation Modal */}
+       <FormCreationModal
+         show={showFormModal}
+         onHide={() => setShowFormModal(false)}
+         onFormCreated={loadForms}
+         user={user}
+       />
+
+       {/* Form Responses Modal */}
+       <Modal show={showResponsesModal} onHide={() => setShowResponsesModal(false)} size="xl">
+         <Modal.Header closeButton>
+           <Modal.Title>
+             Form Responses: {selectedForm?.title}
+           </Modal.Title>
+         </Modal.Header>
+         <Modal.Body>
+           {selectedForm && (
+             <div className="mb-4">
+               <h6>Form Details</h6>
+               <p><strong>Description:</strong> {selectedForm.description}</p>
+               <p><strong>Deadline:</strong> {new Date(selectedForm.deadline).toLocaleString()}</p>
+             </div>
+           )}
+           
+           <h6>Responses ({formResponses.length})</h6>
+           {formResponses.map((response, index) => (
+             <Card key={response.id} className="mb-3">
+               <Card.Header>
+                 <strong>{response.student_name}</strong> - {response.student_rollnumber}
+                 <br />
+                 <small className="text-muted">
+                   Submitted: {new Date(response.submitted_at).toLocaleString()}
+                 </small>
+               </Card.Header>
+               <Card.Body>
+                 {Object.entries(response.responses).map(([fieldId, value]) => {
+                   const field = selectedForm?.form_fields?.find(f => f.id === parseInt(fieldId));
+                   return (
+                     <div key={fieldId} className="mb-2">
+                       <strong>{field?.label || fieldId}:</strong>
+                       <div className="mt-1">
+                         {Array.isArray(value) ? value.join(', ') : value}
+                       </div>
+                     </div>
+                   );
+                 })}
+               </Card.Body>
+             </Card>
+           ))}
+           
+           {formResponses.length === 0 && (
+             <p className="text-muted text-center">No responses yet</p>
+           )}
+         </Modal.Body>
+         <Modal.Footer>
+           {formResponses.length > 0 && (
+             <Button 
+               variant="success" 
+               onClick={() => handleDownloadResponses(selectedForm.id)}
+               className="me-2"
+             >
+               Download Excel
+             </Button>
+           )}
+           <Button variant="secondary" onClick={() => setShowResponsesModal(false)}>
+             Close
+           </Button>
+         </Modal.Footer>
+       </Modal>
+     </div>
+   );
+ };
 
 export default AdminDashboard; 

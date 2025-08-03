@@ -81,6 +81,26 @@ class OTP(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False)
 
+class Form(db.Model):
+    __tablename__ = 'forms'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
+    branch = db.Column(db.String(100), nullable=False)
+    deadline = db.Column(db.DateTime, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    form_fields = db.Column(db.Text)  # JSON string containing form fields
+
+class FormResponse(db.Model):
+    __tablename__ = 'form_responses'
+    id = db.Column(db.Integer, primary_key=True)
+    form_id = db.Column(db.Integer, db.ForeignKey('forms.id'), nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
+    responses = db.Column(db.Text)  # JSON string containing responses
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 # Utility functions
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -1075,9 +1095,646 @@ def generate_pdf_report(certificates):
         download_name='certificates_report.pdf'
     )
 
+# Form Management API Endpoints
 
+@app.route('/api/admin/forms', methods=['POST'])
+def create_form():
+    try:
+        data = request.get_json()
+        
+        # Get admin info from session or token
+        admin_id = data.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+        
+        # Create new form
+        new_form = Form(
+            title=data['title'],
+            description=data.get('description', ''),
+            admin_id=admin_id,
+            branch=admin.branch,
+            deadline=datetime.fromisoformat(data['deadline'].replace('Z', '+00:00')),
+            form_fields=json.dumps(data['form_fields'])
+        )
+        
+        db.session.add(new_form)
+        db.session.commit()
+        
+        # Send email notifications to students in the same branch
+        students = Student.query.filter_by(branch=admin.branch).all()
+        
+        for student in students:
+            try:
+                msg = Message(
+                    subject=f'New Form Available: {new_form.title}',
+                    sender=app.config['MAIL_USERNAME'],
+                    recipients=[student.email]
+                )
+                msg.body = f"""
+Dear {student.name},
 
+Your department admin has created a new form: "{new_form.title}"
 
+Description: {new_form.description}
+
+Deadline: {new_form.deadline.strftime('%Y-%m-%d %H:%M:%S')}
+
+Please log in to your student dashboard to fill out this form.
+
+Best regards,
+SRIT Admin Team
+                """
+                mail.send(msg)
+            except Exception as e:
+                print(f"Failed to send email to {student.email}: {str(e)}")
+        
+        return jsonify({
+            'message': 'Form created successfully',
+            'form_id': new_form.id
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms', methods=['GET'])
+def get_admin_forms():
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        forms = Form.query.filter_by(admin_id=admin_id).order_by(Form.created_at.desc()).all()
+        
+        forms_data = []
+        for form in forms:
+            # Get response count
+            response_count = FormResponse.query.filter_by(form_id=form.id).count()
+            
+            forms_data.append({
+                'id': form.id,
+                'title': form.title,
+                'description': form.description,
+                'branch': form.branch,
+                'deadline': form.deadline.isoformat(),
+                'is_active': form.is_active,
+                'created_at': form.created_at.isoformat(),
+                'response_count': response_count
+            })
+        
+        return jsonify({'forms': forms_data}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms/<int:form_id>/responses', methods=['GET'])
+def get_form_responses(form_id):
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        # Verify admin owns this form
+        form = Form.query.filter_by(id=form_id, admin_id=admin_id).first()
+        if not form:
+            return jsonify({'error': 'Form not found or access denied'}), 404
+        
+        responses = FormResponse.query.filter_by(form_id=form_id).all()
+        
+        responses_data = []
+        for response in responses:
+            student = db.session.get(Student, response.student_id)
+            responses_data.append({
+                'id': response.id,
+                'student_name': student.name if student else 'Unknown',
+                'student_rollnumber': student.rollnumber if student else 'Unknown',
+                'student_email': student.email if student else 'Unknown',
+                'responses': json.loads(response.responses),
+                'submitted_at': response.submitted_at.isoformat()
+            })
+        
+        return jsonify({
+            'form': {
+                'id': form.id,
+                'title': form.title,
+                'description': form.description,
+                'form_fields': json.loads(form.form_fields)
+            },
+            'responses': responses_data
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms/<int:form_id>/responses/download', methods=['GET'])
+def download_form_responses_excel(form_id):
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        # Verify admin owns this form
+        form = Form.query.filter_by(id=form_id, admin_id=admin_id).first()
+        if not form:
+            return jsonify({'error': 'Form not found or access denied'}), 404
+        
+        responses = FormResponse.query.filter_by(form_id=form_id).all()
+        
+        if not responses:
+            return jsonify({'error': 'No responses found for this form'}), 404
+        
+        # Create Excel workbook
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Form Responses"
+        
+        # Get form fields
+        form_fields = json.loads(form.form_fields)
+        
+        # Create headers
+        headers = ['Student Name', 'Roll Number', 'Student Email', 'Submission Date']
+        for field in form_fields:
+            headers.append(field['label'])
+        
+        # Write headers
+        for col, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col, value=header)
+        
+        # Write data
+        for row, response in enumerate(responses, 2):
+            student = db.session.get(Student, response.student_id)
+            responses_data = json.loads(response.responses)
+            
+            # Basic student info
+            ws.cell(row=row, column=1, value=student.name if student else 'Unknown')
+            ws.cell(row=row, column=2, value=student.rollnumber if student else 'Unknown')
+            ws.cell(row=row, column=3, value=student.email if student else 'Unknown')
+            ws.cell(row=row, column=4, value=response.submitted_at.strftime('%Y-%m-%d %H:%M:%S'))
+            
+            # Form field responses
+            for col, field in enumerate(form_fields, 5):
+                field_id = str(field['id'])
+                value = responses_data.get(field_id, '')
+                
+                # Handle different field types
+                if field['type'] in ['checkbox', 'radio', 'select'] and isinstance(value, list):
+                    value = ', '.join(value)
+                elif field['type'] == 'file' and value:
+                    # Create downloadable link for file uploads only if files exist
+                    if isinstance(value, list):
+                        # Multiple files
+                        file_links = []
+                        for i, filename in enumerate(value):
+                            # Check if file exists
+                            file_path = os.path.join('uploads', 'forms', str(form_id), str(response.id), filename)
+                            if os.path.exists(file_path):
+                                # Remove temp_ prefix for display
+                                display_name = filename.replace('temp_', '') if filename.startswith('temp_') else filename
+                                download_url = f"http://localhost:5000/api/admin/forms/{form_id}/responses/{response.id}/files/{filename}?admin_id={admin_id}"
+                                file_links.append(f'=HYPERLINK("{download_url}","{display_name}")')
+                            else:
+                                # File doesn't exist, show filename without link
+                                display_name = filename.replace('temp_', '') if filename.startswith('temp_') else filename
+                                file_links.append(f'File not found: {display_name}')
+                        value = ' | '.join(file_links)
+                    else:
+                        # Single file
+                        # Check if file exists
+                        file_path = os.path.join('uploads', 'forms', str(form_id), str(response.id), value)
+                        if os.path.exists(file_path):
+                            # Remove temp_ prefix for display
+                            display_name = value.replace('temp_', '') if value.startswith('temp_') else value
+                            download_url = f"http://localhost:5000/api/admin/forms/{form_id}/responses/{response.id}/files/{value}?admin_id={admin_id}"
+                            value = f'=HYPERLINK("{download_url}","{display_name}")'
+                        else:
+                            # File doesn't exist, show filename without link
+                            display_name = value.replace('temp_', '') if value.startswith('temp_') else value
+                            value = f'File not found: {display_name}'
+                
+                ws.cell(row=row, column=col, value=value)
+        
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to bytes
+        excel_file = io.BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+        
+        return send_file(
+            excel_file,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'form_responses_{form.title.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/forms/<int:form_id>/response', methods=['GET'])
+def get_student_form_response(form_id):
+    try:
+        student_id = request.args.get('student_id')
+        if not student_id:
+            return jsonify({'error': 'Student ID required'}), 400
+        
+        # Check if student has responded to this form
+        response = FormResponse.query.filter_by(
+            form_id=form_id,
+            student_id=student_id
+        ).first()
+        
+        if not response:
+            return jsonify({'error': 'No response found for this form'}), 404
+        
+        return jsonify({
+            'responses': json.loads(response.responses),
+            'submitted_at': response.submitted_at.isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms/<int:form_id>/responses/<int:response_id>/files/<path:filename>', methods=['GET'])
+def download_form_file(form_id, response_id, filename):
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        # Verify admin owns this form
+        form = Form.query.filter_by(id=form_id, admin_id=admin_id).first()
+        if not form:
+            return jsonify({'error': 'Form not found or access denied'}), 404
+        
+        # Verify response exists for this form
+        response = FormResponse.query.filter_by(id=response_id, form_id=form_id).first()
+        if not response:
+            return jsonify({'error': 'Response not found'}), 404
+        
+        # Construct file path
+        file_path = os.path.join('uploads', 'forms', str(form_id), str(response_id), filename)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            # Check if directory exists
+            response_dir = os.path.join('uploads', 'forms', str(form_id), str(response_id))
+            if not os.path.exists(response_dir):
+                return jsonify({'error': f'Response directory not found: {response_dir}'}), 404
+            
+            # List available files in the directory
+            available_files = os.listdir(response_dir) if os.path.exists(response_dir) else []
+            return jsonify({
+                'error': f'File not found: {filename}',
+                'available_files': available_files,
+                'searched_path': file_path
+            }), 404
+        
+        return send_file(file_path, as_attachment=True)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/forms', methods=['GET'])
+def get_student_forms():
+    try:
+        student_id = request.args.get('student_id')
+        if not student_id:
+            return jsonify({'error': 'Student ID required'}), 400
+        
+        student = db.session.get(Student, student_id)
+        if not student:
+            return jsonify({'error': 'Student not found'}), 404
+        
+        # Get active forms for student's branch
+        forms = Form.query.filter_by(
+            branch=student.branch,
+            is_active=True
+        ).filter(Form.deadline > datetime.utcnow()).order_by(Form.created_at.desc()).all()
+        
+        forms_data = []
+        for form in forms:
+            # Check if student has already responded
+            existing_response = FormResponse.query.filter_by(
+                form_id=form.id,
+                student_id=student_id
+            ).first()
+            
+            forms_data.append({
+                'id': form.id,
+                'title': form.title,
+                'description': form.description,
+                'deadline': form.deadline.isoformat(),
+                'created_at': form.created_at.isoformat(),
+                'form_fields': json.loads(form.form_fields),
+                'has_responded': existing_response is not None
+            })
+        
+        return jsonify({'forms': forms_data}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/forms/<int:form_id>/submit', methods=['POST'])
+def submit_form_response(form_id):
+    try:
+        data = request.get_json()
+        student_id = data.get('student_id')
+        responses = data.get('responses')
+        
+        if not all([form_id, student_id, responses]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Check if form exists and is active
+        form = Form.query.filter_by(id=form_id, is_active=True).first()
+        if not form:
+            return jsonify({'error': 'Form not found or inactive'}), 404
+        
+        # Check if deadline has passed
+        if form.deadline < datetime.utcnow():
+            return jsonify({'error': 'Form deadline has passed'}), 400
+        
+        # Check if student has already responded
+        existing_response = FormResponse.query.filter_by(
+            form_id=form_id,
+            student_id=student_id
+        ).first()
+        
+        if existing_response:
+            return jsonify({'error': 'You have already submitted a response to this form'}), 400
+        
+        # Create new response
+        new_response = FormResponse(
+            form_id=form_id,
+            student_id=student_id,
+            responses=json.dumps(responses)
+        )
+        
+        db.session.add(new_response)
+        db.session.commit()
+        
+        # Move uploaded files from temp to final location
+        temp_dir = os.path.join('uploads', 'forms', str(form_id), 'temp')
+        final_dir = os.path.join('uploads', 'forms', str(form_id), str(new_response.id))
+        
+        if os.path.exists(temp_dir):
+            os.makedirs(final_dir, exist_ok=True)
+            for filename in os.listdir(temp_dir):
+                if filename.startswith('temp_'):
+                    # Move file to final location
+                    src_path = os.path.join(temp_dir, filename)
+                    dst_path = os.path.join(final_dir, filename)
+                    os.rename(src_path, dst_path)
+            
+            # Remove temp directory
+            try:
+                os.rmdir(temp_dir)
+            except OSError:
+                pass  # Directory not empty, leave it
+        
+        return jsonify({'message': 'Form submitted successfully'}), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/forms/<int:form_id>/upload-file', methods=['POST'])
+def upload_form_file(form_id):
+    try:
+        student_id = request.form.get('student_id')
+        field_id = request.form.get('field_id')
+        
+        if not all([form_id, student_id, field_id]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Check if form exists and is active
+        form = Form.query.filter_by(id=form_id, is_active=True).first()
+        if not form:
+            return jsonify({'error': 'Form not found or inactive'}), 404
+        
+        # Check if deadline has passed
+        if form.deadline < datetime.utcnow():
+            return jsonify({'error': 'Form deadline has passed'}), 400
+        
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type (only PDF for now)
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'Only PDF files are allowed'}), 400
+        
+        # Create upload directory structure
+        upload_dir = os.path.join('uploads', 'forms', str(form_id), 'temp')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Save file with unique name
+        filename = f"temp_{field_id}_{int(datetime.utcnow().timestamp())}_{file.filename}"
+        file_path = os.path.join(upload_dir, filename)
+        file.save(file_path)
+        
+        return jsonify({
+            'message': 'File uploaded successfully',
+            'filename': filename,
+            'file_path': file_path
+        }), 201
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/student/forms/notifications', methods=['GET'])
+def get_form_notifications():
+    try:
+        student_id = request.args.get('student_id')
+        if not student_id:
+            return jsonify({'error': 'Student ID required'}), 400
+        
+        student = db.session.get(Student, student_id)
+        if not student:
+            return jsonify({'error': 'Student not found'}), 404
+        
+        # Get unresponded active forms
+        forms = Form.query.filter_by(
+            branch=student.branch,
+            is_active=True
+        ).filter(Form.deadline > datetime.utcnow()).all()
+        
+        unresponded_forms = []
+        for form in forms:
+            existing_response = FormResponse.query.filter_by(
+                form_id=form.id,
+                student_id=student_id
+            ).first()
+            
+            if not existing_response:
+                unresponded_forms.append({
+                    'id': form.id,
+                    'title': form.title,
+                    'deadline': form.deadline.isoformat()
+                })
+        
+        return jsonify({
+            'unresponded_count': len(unresponded_forms),
+            'forms': unresponded_forms
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms/send-deadline-reminders', methods=['POST'])
+def send_deadline_reminders():
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        # Get forms created by this admin that have deadlines tomorrow
+        tomorrow = datetime.utcnow() + timedelta(days=1)
+        tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_end = tomorrow.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        forms = Form.query.filter(
+            Form.admin_id == admin_id,
+            Form.is_active == True,
+            Form.deadline >= tomorrow_start,
+            Form.deadline <= tomorrow_end
+        ).all()
+        
+        if not forms:
+            return jsonify({'message': 'No forms with deadlines tomorrow'}), 200
+        
+        sent_count = 0
+        for form in forms:
+            # Get students in the same branch who haven't responded
+            students = Student.query.filter_by(branch=form.branch).all()
+            
+            for student in students:
+                # Check if student has already responded
+                existing_response = FormResponse.query.filter_by(
+                    form_id=form.id,
+                    student_id=student.id
+                ).first()
+                
+                if not existing_response:
+                    # Send reminder email
+                    try:
+                        msg = Message(
+                            subject=f'Form Deadline Reminder: {form.title}',
+                            sender=app.config['MAIL_DEFAULT_SENDER'],
+                            recipients=[student.email]
+                        )
+                        
+                        deadline_str = form.deadline.strftime('%B %d, %Y at %I:%M %p')
+                        
+                        msg.body = f"""
+Dear {student.name},
+
+This is a friendly reminder that you have a pending form submission with a deadline tomorrow.
+
+Form Details:
+- Title: {form.title}
+- Description: {form.description}
+- Deadline: {deadline_str}
+
+Please log in to your student dashboard and complete this form before the deadline.
+
+If you have any questions, please contact your department admin.
+
+Best regards,
+SAT Portal Team
+                        """
+                        
+                        mail.send(msg)
+                        sent_count += 1
+                        
+                    except Exception as e:
+                        print(f"Failed to send reminder to {student.email}: {str(e)}")
+                        continue
+        
+        return jsonify({
+            'message': f'Deadline reminders sent successfully',
+            'forms_processed': len(forms),
+            'emails_sent': sent_count
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms/<int:form_id>', methods=['DELETE'])
+def delete_form(form_id):
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        
+        # Get the form and verify admin ownership
+        form = Form.query.filter_by(id=form_id, admin_id=admin_id).first()
+        if not form:
+            return jsonify({'error': 'Form not found or access denied'}), 404
+        
+        # Get all responses for this form
+        responses = FormResponse.query.filter_by(form_id=form_id).all()
+        
+        # Delete uploaded files for each response
+        for response in responses:
+            response_dir = os.path.join('uploads', 'forms', str(form_id), str(response.id))
+            if os.path.exists(response_dir):
+                try:
+                    # Remove all files in the response directory
+                    for filename in os.listdir(response_dir):
+                        file_path = os.path.join(response_dir, filename)
+                        if os.path.isfile(file_path):
+                            os.remove(file_path)
+                    # Remove the response directory
+                    os.rmdir(response_dir)
+                except Exception as e:
+                    print(f"Error deleting files for response {response.id}: {str(e)}")
+        
+        # Delete the form directory (including temp files)
+        form_dir = os.path.join('uploads', 'forms', str(form_id))
+        if os.path.exists(form_dir):
+            try:
+                # Remove all files and subdirectories
+                for root, dirs, files in os.walk(form_dir, topdown=False):
+                    for file in files:
+                        os.remove(os.path.join(root, file))
+                    for dir in dirs:
+                        os.rmdir(os.path.join(root, dir))
+                # Remove the form directory
+                os.rmdir(form_dir)
+            except Exception as e:
+                print(f"Error deleting form directory: {str(e)}")
+        
+        # Delete all form responses from database
+        FormResponse.query.filter_by(form_id=form_id).delete()
+        
+        # Delete the form from database
+        db.session.delete(form)
+        db.session.commit()
+        
+        return jsonify({'message': 'Form and all responses deleted successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     with app.app_context():

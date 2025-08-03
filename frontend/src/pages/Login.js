@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, Form, Button, Alert, Tabs, Tab, Modal } from 'react-bootstrap';
 import { Link, useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
+import backgroundImage from '../background-image.jpg';
 
 const Login = ({ onLogin }) => {
   const navigate = useNavigate();
@@ -177,13 +178,16 @@ const Login = ({ onLogin }) => {
 
   return (
     <div 
-      className="d-flex justify-content-center align-items-center min-vh-100 login-background"
+      className="d-flex justify-content-center align-items-center min-vh-100"
       style={{
-        backgroundImage: 'url(/background-image.jpg)',
+        backgroundImage: `url(${backgroundImage})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
-        backgroundAttachment: 'fixed'
+        backgroundAttachment: 'fixed',
+        minHeight: '100vh',
+        margin: 0,
+        padding: 0
       }}
     >
       <div className="w-100" style={{ maxWidth: '500px' }}>

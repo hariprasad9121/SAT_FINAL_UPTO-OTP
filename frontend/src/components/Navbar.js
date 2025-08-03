@@ -1,9 +1,29 @@
-import React from 'react';
-import { Navbar, Nav, Container, Dropdown } from 'react-bootstrap';
+import React, { useState, useEffect } from 'react';
+import { Navbar, Nav, Container, Dropdown, Badge } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
+import { studentAPI } from '../services/api';
 
 const NavigationBar = ({ user, userType, onLogout }) => {
   const navigate = useNavigate();
+  const [notifications, setNotifications] = useState({ unresponded_count: 0, forms: [] });
+
+  useEffect(() => {
+    if (userType === 'student' && user?.id) {
+      const loadNotifications = async () => {
+        try {
+          const response = await studentAPI.getFormNotifications(user.id);
+          setNotifications(response.data);
+        } catch (error) {
+          console.error('Failed to load notifications:', error);
+        }
+      };
+
+      loadNotifications();
+      // Refresh notifications every 30 seconds
+      const interval = setInterval(loadNotifications, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [userType, user?.id]);
 
   const handleLogout = () => {
     onLogout();
@@ -38,6 +58,48 @@ const NavigationBar = ({ user, userType, onLogout }) => {
           </Nav>
           
           <Nav className="ms-auto">
+            {userType === 'student' && (
+              <Dropdown align="end" className="me-2">
+                <Dropdown.Toggle variant="outline-secondary" id="notifications-dropdown">
+                  📢 Notifications
+                  {notifications.unresponded_count > 0 && (
+                    <Badge bg="danger" className="ms-1">
+                      {notifications.unresponded_count}
+                    </Badge>
+                  )}
+                </Dropdown.Toggle>
+
+                <Dropdown.Menu>
+                  <Dropdown.Header>
+                    <strong>Form Notifications</strong>
+                  </Dropdown.Header>
+                  {notifications.forms.length === 0 ? (
+                    <Dropdown.Item disabled>
+                      No pending forms
+                    </Dropdown.Item>
+                  ) : (
+                    notifications.forms.map((form) => (
+                      <Dropdown.Item 
+                        key={form.id}
+                        onClick={() => {
+                          navigate('/student/dashboard');
+                          // The form modal will be opened from the dashboard
+                        }}
+                      >
+                        <div>
+                          <strong>{form.title}</strong>
+                          <br />
+                          <small className="text-muted">
+                            Deadline: {new Date(form.deadline).toLocaleDateString()}
+                          </small>
+                        </div>
+                      </Dropdown.Item>
+                    ))
+                  )}
+                </Dropdown.Menu>
+              </Dropdown>
+            )}
+            
             <Dropdown align="end">
               <Dropdown.Toggle variant="outline-primary" id="dropdown-basic">
                  {user?.name || 'User'}
