@@ -91,6 +91,16 @@ export const adminAPI = {
   downloadFormResponses: (formId, adminId) => api.get(`/admin/forms/${formId}/responses/download?admin_id=${adminId}`, {
     responseType: 'blob',
   }),
+  getUnsubmittedStudents: (formId, adminId, params = {}) => {
+    const qp = new URLSearchParams({ ...params, admin_id: adminId });
+    return api.get(`/admin/forms/${formId}/unsubmitted?${qp.toString()}`);
+  },
+  downloadUnsubmittedStudents: (formId, adminId, params = {}) => {
+    const qp = new URLSearchParams({ ...params, admin_id: adminId });
+    return api.get(`/admin/forms/${formId}/unsubmitted/download?${qp.toString()}`, {
+      responseType: 'blob',
+    });
+  },
   sendDeadlineReminders: (adminId) => api.post(`/admin/forms/send-deadline-reminders?admin_id=${adminId}`),
   deleteForm: (formId, adminId) => api.delete(`/admin/forms/${formId}?admin_id=${adminId}`),
 };

@@ -27,6 +27,10 @@ const AdminDashboard = ({ user }) => {
   const [showResponsesModal, setShowResponsesModal] = useState(false);
   const [selectedForm, setSelectedForm] = useState(null);
   const [formResponses, setFormResponses] = useState([]);
+  const [showUnsubmittedModal, setShowUnsubmittedModal] = useState(false);
+  const [unsubmitted, setUnsubmitted] = useState([]);
+  const [unsubmittedCount, setUnsubmittedCount] = useState(0);
+  const [unsubmittedFilters, setUnsubmittedFilters] = useState({ year: '', section: '' });
 
   // Admin credentials mapping
   const adminCredentials = {
@@ -229,6 +233,50 @@ const AdminDashboard = ({ user }) => {
       setShowResponsesModal(true);
     } catch (error) {
       setMessage('Failed to load form responses.');
+    }
+  };
+
+  const handleViewUnsubmitted = async (form) => {
+    try {
+      const res = await adminAPI.getUnsubmittedStudents(form.id, user.id, unsubmittedFilters);
+      setSelectedForm(form);
+      setUnsubmitted(res.data.unsubmitted || []);
+      setUnsubmittedCount(res.data.count || 0);
+      setShowUnsubmittedModal(true);
+    } catch (error) {
+      setMessage('Failed to load unsubmitted students.');
+    }
+  };
+
+  const handleUnsubmittedFilterChange = async (key, value) => {
+    const next = { ...unsubmittedFilters, [key]: value };
+    setUnsubmittedFilters(next);
+    if (selectedForm) {
+      try {
+        const res = await adminAPI.getUnsubmittedStudents(selectedForm.id, user.id, next);
+        setUnsubmitted(res.data.unsubmitted || []);
+        setUnsubmittedCount(res.data.count || 0);
+      } catch (_) {}
+    }
+  };
+
+  const handleDownloadUnsubmitted = async () => {
+    if (!selectedForm) return;
+    try {
+      const response = await adminAPI.downloadUnsubmittedStudents(selectedForm.id, user.id, unsubmittedFilters);
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `unsubmitted_students_${selectedForm.id}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage('Failed to download unsubmitted students.');
     }
   };
 
@@ -718,7 +766,7 @@ const AdminDashboard = ({ user }) => {
                  </Col>
                </Row>
              </Card.Header>
-             <Card.Body>
+            <Card.Body>
                <Table responsive>
                  <thead>
                    <tr>
@@ -727,7 +775,8 @@ const AdminDashboard = ({ user }) => {
                      <th>Deadline</th>
                      <th>Responses</th>
                      <th>Status</th>
-                     <th>Actions</th>
+                    <th>Actions</th>
+                    <th>Unsubmitted</th>
                      <th>Delete Responses</th>
                    </tr>
                  </thead>
@@ -752,6 +801,15 @@ const AdminDashboard = ({ user }) => {
                            Download Responses
                          </Button>
                        </td>
+                      <td>
+                        <Button
+                          size="sm"
+                          variant="outline-warning"
+                          onClick={() => handleViewUnsubmitted(form)}
+                        >
+                          View Unsubmitted
+                        </Button>
+                      </td>
                        <td>
                          <Button 
                            size="sm" 
@@ -926,6 +984,98 @@ const AdminDashboard = ({ user }) => {
           </Button>
                  </Modal.Footer>
        </Modal>
+
+      {/* Unsubmitted Students Modal */}
+      <Modal show={showUnsubmittedModal} onHide={() => setShowUnsubmittedModal(false)} size="xl">
+        <Modal.Header closeButton>
+          <Modal.Title>
+            Unsubmitted Students{selectedForm ? ` - ${selectedForm.title}` : ''}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Row className="mb-3">
+            <Col md={3}>
+              <Form.Group>
+                <Form.Label>Year</Form.Label>
+                <Form.Select
+                  value={unsubmittedFilters.year}
+                  onChange={(e) => handleUnsubmittedFilterChange('year', e.target.value)}
+                >
+                  <option value="">All Years</option>
+                  <option value="I">Year I</option>
+                  <option value="II">Year II</option>
+                  <option value="III">Year III</option>
+                  <option value="IV">Year IV</option>
+                </Form.Select>
+              </Form.Group>
+            </Col>
+            <Col md={3}>
+              <Form.Group>
+                <Form.Label>Section</Form.Label>
+                <Form.Select
+                  value={unsubmittedFilters.section}
+                  onChange={(e) => handleUnsubmittedFilterChange('section', e.target.value)}
+                >
+                  <option value="">All Sections</option>
+                  <option value="A">Section A</option>
+                  <option value="B">Section B</option>
+                  <option value="C">Section C</option>
+                  <option value="D">Section D</option>
+                  <option value="E">Section E</option>
+                  <option value="F">Section F</option>
+                  <option value="G">Section G</option>
+                  <option value="H">Section H</option>
+                </Form.Select>
+              </Form.Group>
+            </Col>
+            <Col md={6} className="d-flex align-items-end">
+              <div className="text-muted">
+                <small>Showing {unsubmittedCount} unsubmitted students</small>
+              </div>
+            </Col>
+          </Row>
+          <Table responsive>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Roll Number</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Branch</th>
+                <th>Section</th>
+                <th>Year</th>
+                <th>Gender</th>
+              </tr>
+            </thead>
+            <tbody>
+              {unsubmitted.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td>{s.rollnumber}</td>
+                  <td>{s.email}</td>
+                  <td>{s.phone}</td>
+                  <td>{s.branch}</td>
+                  <td>{s.section}</td>
+                  <td>{s.year}</td>
+                  <td>{s.gender}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button 
+            variant="success" 
+            onClick={handleDownloadUnsubmitted}
+            disabled={!unsubmittedCount}
+          >
+            Download Excel
+          </Button>
+          <Button variant="secondary" onClick={() => setShowUnsubmittedModal(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
        {/* Form Creation Modal */}
        <FormCreationModal

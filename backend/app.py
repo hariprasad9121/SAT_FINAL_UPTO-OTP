@@ -67,6 +67,15 @@ class Admin(db.Model):
     password = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=utcnow_naive)
 
+class AdminMessage(db.Model):
+    __tablename__ = 'admin_messages'
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
+    subject = db.Column(db.String(255), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=utcnow_naive)
+
 class Certificate(db.Model):
     __tablename__ = 'certificates'
     id = db.Column(db.Integer, primary_key=True)
@@ -281,7 +290,9 @@ ADMIN_CREDENTIALS = {
     'admin@ece': {'password': 'Ece@srit', 'branch': 'ELECTRICAL AND ELECTRONICS OF COMMUNICATION ENGINEERING'},
     'admin@eee': {'password': 'Eee@srit', 'branch': 'ELECTRICAL AND ELECTRONICS ENGINEERING'},
     'admin@civ': {'password': 'Civ@srit', 'branch': 'CIVIL ENGINEERING'},
-    'admin@mech': {'password': 'Mech@srit', 'branch': 'MECHANICAL ENGINEERING'}
+    'admin@mech': {'password': 'Mech@srit', 'branch': 'MECHANICAL ENGINEERING'},
+    # Super admin credential
+    'super@admin': {'password': 'Superadmin@srit', 'branch': 'SUPER ADMIN', 'role': 'superadmin'}
 }
 
 # Routes
@@ -437,7 +448,8 @@ def admin_login():
                         'email': admin.email,
                         'phone': admin.phone,
                         'gender': admin.gender,
-                        'branch': admin.branch
+                        'branch': admin.branch,
+                        'role': admin_cred.get('role', 'admin')
                     }
                 }), 200
             else:
@@ -1738,6 +1750,238 @@ SAT Portal Team
             'emails_sent': sent_count
         }), 200
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ========== Admin Forms: Unsubmitted Students ==========
+@app.route('/api/admin/forms/<int:form_id>/unsubmitted', methods=['GET'])
+def get_unsubmitted_students(form_id):
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+
+        form = db.session.get(Form, form_id)
+        if not form:
+            return jsonify({'error': 'Form not found'}), 404
+        if form.admin_id != admin.id and ADMIN_CREDENTIALS.get('super@admin', {}).get('branch') != admin.branch:
+            # Allow super admin to view all
+            return jsonify({'error': 'Access denied'}), 403
+
+        # Optional filters: year, section
+        year = request.args.get('year')
+        section = request.args.get('section')
+
+        # Students in admin branch
+        students_query = Student.query.filter_by(branch=admin.branch)
+        if year:
+            students_query = students_query.filter_by(year=year)
+        if section:
+            students_query = students_query.filter_by(section=section)
+        all_students = students_query.all()
+
+        # Responded student ids
+        responded = FormResponse.query.with_entities(FormResponse.student_id).filter_by(form_id=form_id).all()
+        responded_ids = {sid for (sid,) in responded}
+
+        unsubmitted = [s for s in all_students if s.id not in responded_ids]
+
+        data = []
+        for s in unsubmitted:
+            data.append({
+                'id': s.id,
+                'name': s.name,
+                'rollnumber': s.rollnumber,
+                'email': s.email,
+                'phone': s.phone,
+                'branch': s.branch,
+                'section': s.section,
+                'year': s.year,
+                'gender': s.gender
+            })
+
+        return jsonify({'unsubmitted': data, 'count': len(data)}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/forms/<int:form_id>/unsubmitted/download', methods=['GET'])
+def download_unsubmitted_students_excel(form_id):
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+
+        form = db.session.get(Form, form_id)
+        if not form:
+            return jsonify({'error': 'Form not found'}), 404
+        if form.admin_id != admin.id and ADMIN_CREDENTIALS.get('super@admin', {}).get('branch') != admin.branch:
+            return jsonify({'error': 'Access denied'}), 403
+
+        # Filters
+        year = request.args.get('year')
+        section = request.args.get('section')
+
+        students_query = Student.query.filter_by(branch=admin.branch)
+        if year:
+            students_query = students_query.filter_by(year=year)
+        if section:
+            students_query = students_query.filter_by(section=section)
+        all_students = students_query.all()
+
+        responded = FormResponse.query.with_entities(FormResponse.student_id).filter_by(form_id=form_id).all()
+        responded_ids = {sid for (sid,) in responded}
+        unsubmitted = [s for s in all_students if s.id not in responded_ids]
+
+        # Build Excel
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Unsubmitted Students"
+
+        headers = ['ID', 'Name', 'Roll Number', 'Email', 'Phone', 'Branch', 'Section', 'Year', 'Gender']
+        ws.append(headers)
+
+        for s in unsubmitted:
+            ws.append([
+                s.id,
+                s.name,
+                s.rollnumber,
+                s.email,
+                s.phone or 'N/A',
+                s.branch or 'N/A',
+                s.section or 'N/A',
+                s.year or 'N/A',
+                s.gender or 'N/A'
+            ])
+
+        # Autosize columns
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except Exception:
+                    pass
+            ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f'unsubmitted_students_form_{form_id}.xlsx'
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ========== Super Admin: Manage Admins and Messages ==========
+@app.route('/api/superadmin/admins', methods=['GET'])
+def superadmin_list_admins():
+    try:
+        admins = Admin.query.order_by(Admin.branch.asc()).all()
+        data = []
+        for a in admins:
+            data.append({
+                'id': a.id,
+                'name': a.name,
+                'employee_id': a.employee_id,
+                'email': a.email,
+                'branch': a.branch
+            })
+        return jsonify({'admins': data}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/superadmin/admins/<int:admin_id>/password', methods=['PUT'])
+def superadmin_change_admin_password(admin_id):
+    try:
+        data = request.get_json()
+        new_password = data.get('new_password')
+        if not new_password:
+            return jsonify({'error': 'New password is required'}), 400
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+        admin.password = hash_password(new_password)
+        db.session.commit()
+        return jsonify({'message': 'Admin password updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/superadmin/admins/<int:admin_id>', methods=['DELETE'])
+def superadmin_delete_admin(admin_id):
+    try:
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+        db.session.delete(admin)
+        db.session.commit()
+        return jsonify({'message': 'Admin deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/superadmin/messages', methods=['POST'])
+def superadmin_send_message():
+    try:
+        data = request.get_json()
+        admin_id = data.get('admin_id')
+        subject = data.get('subject')
+        body = data.get('body')
+        if not all([admin_id, subject, body]):
+            return jsonify({'error': 'admin_id, subject, and body are required'}), 400
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+        msg = AdminMessage(admin_id=admin_id, subject=subject, body=body)
+        db.session.add(msg)
+        db.session.commit()
+        return jsonify({'message': 'Message sent to admin'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/messages', methods=['GET'])
+def admin_get_messages():
+    try:
+        admin_id = request.args.get('admin_id')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID required'}), 400
+        messages = AdminMessage.query.filter_by(admin_id=admin_id).order_by(AdminMessage.created_at.desc()).all()
+        unread_count = AdminMessage.query.filter_by(admin_id=admin_id, is_read=False).count()
+        data = []
+        for m in messages:
+            data.append({
+                'id': m.id,
+                'subject': m.subject,
+                'body': m.body,
+                'is_read': m.is_read,
+                'created_at': m.created_at.isoformat()
+            })
+        return jsonify({'messages': data, 'unread_count': unread_count}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/messages/<int:message_id>/read', methods=['PUT'])
+def admin_mark_message_read(message_id):
+    try:
+        msg = db.session.get(AdminMessage, message_id)
+        if not msg:
+            return jsonify({'error': 'Message not found'}), 404
+        msg.is_read = True
+        db.session.commit()
+        return jsonify({'message': 'Message marked as read'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
