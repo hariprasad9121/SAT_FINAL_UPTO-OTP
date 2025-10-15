@@ -2,6 +2,9 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
+import smtplib
+from email.mime.text import MIMEText
+from email.utils import formataddr
 import os
 import bcrypt
 import json
@@ -25,8 +28,17 @@ app.config.from_object(Config)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
+# Normalize Gmail app password (allow spaces in .env but strip for SMTP auth)
+if isinstance(app.config.get('MAIL_PASSWORD'), str):
+    app.config['MAIL_PASSWORD'] = app.config['MAIL_PASSWORD'].replace(' ', '')
+
 mail = Mail(app)
 CORS(app)
+
+# Time helpers
+def utcnow_naive():
+    """Return current UTC time as a timezone-naive datetime for DB consistency."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Database Models
 class Student(db.Model):
@@ -41,7 +53,7 @@ class Student(db.Model):
     section = db.Column(db.String(10))
     year = db.Column(db.String(10))
     password = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow_naive)
 
 class Admin(db.Model):
     __tablename__ = 'admins'
@@ -53,7 +65,7 @@ class Admin(db.Model):
     gender = db.Column(db.String(10), db.CheckConstraint("gender IN ('Male', 'Female', 'Other')"))
     branch = db.Column(db.String(100))
     password = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow_naive)
 
 class Certificate(db.Model):
     __tablename__ = 'certificates'
@@ -69,7 +81,7 @@ class Certificate(db.Model):
     event_type = db.Column(db.String(100))
     file_path = db.Column(db.String(255))
     status = db.Column(db.String(20), db.CheckConstraint("status IN ('Pending', 'Approved', 'Rejected')"), default='Pending')
-    uploaded_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    uploaded_at = db.Column(db.DateTime, default=utcnow_naive)
 
 class OTP(db.Model):
     __tablename__ = 'otps'
@@ -77,7 +89,7 @@ class OTP(db.Model):
     email = db.Column(db.String(120), nullable=False)
     otp_code = db.Column(db.String(6), nullable=False)
     purpose = db.Column(db.String(20), nullable=False)  # 'registration' or 'reset_password'
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow_naive)
     expires_at = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False)
 
@@ -90,7 +102,7 @@ class Form(db.Model):
     branch = db.Column(db.String(100), nullable=False)
     deadline = db.Column(db.DateTime, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow_naive)
     form_fields = db.Column(db.Text)  # JSON string containing form fields
 
 class FormResponse(db.Model):
@@ -99,7 +111,7 @@ class FormResponse(db.Model):
     form_id = db.Column(db.Integer, db.ForeignKey('forms.id'), nullable=False)
     student_id = db.Column(db.Integer, db.ForeignKey('students.id'), nullable=False)
     responses = db.Column(db.Text)  # JSON string containing responses
-    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    submitted_at = db.Column(db.DateTime, default=utcnow_naive)
 
 # Utility functions
 def hash_password(password):
@@ -169,13 +181,53 @@ def send_otp_email(email, otp_code, purpose):
             </html>
             """
         
-        msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[email])
+        sender_address = app.config.get('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+        msg = Message(subject, sender=sender_address, recipients=[email])
         msg.html = body
         mail.send(msg)
         return True
     except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+        print(f"Error sending email via Flask-Mail: {e}")
+        # Fallback: try direct SMTP (first TLS 587, then SSL 465)
+        try:
+            username = app.config.get('MAIL_USERNAME')
+            password = app.config.get('MAIL_PASSWORD')
+            server_host = app.config.get('MAIL_SERVER', 'smtp.gmail.com')
+            sender_address = app.config.get('MAIL_DEFAULT_SENDER', username)
+
+            if not username or not password:
+                print("SMTP fallback aborted: MAIL_USERNAME or MAIL_PASSWORD not configured")
+                return False
+
+            # Prepare MIME message
+            mime_msg = MIMEText(body, 'html')
+            mime_msg['Subject'] = subject
+            mime_msg['From'] = formataddr(("SAT Portal", sender_address))
+            mime_msg['To'] = email
+
+            # Try TLS
+            try:
+                with smtplib.SMTP(server_host, 587, timeout=10) as smtp:
+                    smtp.ehlo()
+                    smtp.starttls()
+                    smtp.login(username, password)
+                    smtp.sendmail(sender_address, [email], mime_msg.as_string())
+                    return True
+            except Exception as e_tls:
+                print(f"TLS send failed, trying SSL: {e_tls}")
+
+            # Try SSL
+            try:
+                with smtplib.SMTP_SSL(server_host, 465, timeout=10) as smtp:
+                    smtp.login(username, password)
+                    smtp.sendmail(sender_address, [email], mime_msg.as_string())
+                    return True
+            except Exception as e_ssl:
+                print(f"SSL send failed: {e_ssl}")
+                return False
+        except Exception as e_fb:
+            print(f"SMTP fallback error: {e_fb}")
+            return False
 
 def create_otp_record(email, purpose):
     """Create OTP record in database"""
@@ -183,7 +235,8 @@ def create_otp_record(email, purpose):
     OTP.query.filter_by(email=email, purpose=purpose, is_used=False).delete()
     
     otp_code = generate_otp()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    # Store expiration as UTC-naive to match DB timestamps
+    expires_at = utcnow_naive() + timedelta(minutes=10)
     
     otp_record = OTP(
         email=email,
@@ -209,7 +262,9 @@ def verify_otp(email, otp_code, purpose):
     if not otp_record:
         return False, "Invalid OTP"
     
-    if datetime.utcnow() > otp_record.expires_at:
+    # Compare using UTC-naive current time to match stored naive timestamp
+    current_utc_naive = utcnow_naive()
+    if current_utc_naive > otp_record.expires_at:
         return False, "OTP has expired"
     
     # Mark OTP as used
@@ -252,6 +307,10 @@ def send_registration_otp():
         if send_otp_email(data['email'], otp_code, 'registration'):
             return jsonify({'message': 'OTP sent successfully to your email'}), 200
         else:
+            # Development fallback: allow proceeding if email fails in debug
+            if app.debug:
+                print(f"DEV MODE: Registration OTP for {data['email']} is {otp_code}")
+                return jsonify({'message': 'OTP send failed, but development fallback applied. Check server logs for OTP.'}), 200
             return jsonify({'error': 'Failed to send OTP. Please try again.'}), 500
         
     except Exception as e:
@@ -412,6 +471,10 @@ def forgot_password():
         if send_otp_email(data['email'], otp_code, 'reset_password'):
             return jsonify({'message': 'Password reset OTP sent successfully to your email'}), 200
         else:
+            # Development fallback: allow proceeding if email fails in debug
+            if app.debug:
+                print(f"DEV MODE: Password reset OTP for {data['email']} is {otp_code}")
+                return jsonify({'message': 'OTP send failed, but development fallback applied. Check server logs for OTP.'}), 200
             return jsonify({'error': 'Failed to send OTP. Please try again.'}), 500
         
     except Exception as e:
