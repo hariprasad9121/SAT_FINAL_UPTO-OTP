@@ -106,6 +106,8 @@ export const adminAPI = {
   changePassword: (data, adminId) => api.put('/admin/change-password', data, {
     headers: { 'X-Admin-ID': adminId }
   }),
+  getAdminMessages: (adminId) => api.get(`/admin/messages?admin_id=${adminId}`),
+  markAdminMessageAsRead: (messageId) => api.put(`/admin/messages/${messageId}/read`),
 };
 
 // Super Admin API

@@ -41,6 +41,8 @@ const AdminDashboard = ({ user }) => {
   const [passwordData, setPasswordData] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordChanging, setPasswordChanging] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState(null);
   
   // Super admin view state
   const [superAdminView, setSuperAdminView] = useState(false);
@@ -383,6 +385,31 @@ const AdminDashboard = ({ user }) => {
 
   const handleShowProfile = () => {
     setShowProfileModal(true);
+  };
+
+  const handleShowMessage = (message) => {
+    setSelectedMessage(message);
+    setShowMessageModal(true);
+  };
+
+  // Listen for message display events
+  useEffect(() => {
+    const handleMessageDisplay = (event) => {
+      if (event.detail && event.detail.message) {
+        handleShowMessage(event.detail.message);
+      }
+    };
+
+    window.addEventListener('showMessage', handleMessageDisplay);
+    return () => window.removeEventListener('showMessage', handleMessageDisplay);
+  }, []);
+
+  // Refresh messages when modal is closed
+  const handleMessageModalClose = () => {
+    setShowMessageModal(false);
+    setSelectedMessage(null);
+    // Trigger a refresh of messages in navbar
+    window.dispatchEvent(new CustomEvent('refreshMessages'));
   };
 
   const handlePasswordChange = async () => {
@@ -1354,6 +1381,34 @@ const AdminDashboard = ({ user }) => {
          </Modal.Body>
          <Modal.Footer>
            <Button variant="secondary" onClick={() => setShowProfileModal(false)}>
+             Close
+           </Button>
+         </Modal.Footer>
+       </Modal>
+
+       {/* Message Modal */}
+       <Modal show={showMessageModal} onHide={handleMessageModalClose} size="lg">
+         <Modal.Header closeButton>
+           <Modal.Title>Admin Message</Modal.Title>
+         </Modal.Header>
+         <Modal.Body>
+           {selectedMessage && (
+             <div>
+               <h6>From: Super Admin</h6>
+               <h5 className="mb-3">{selectedMessage.subject}</h5>
+               <div className="border p-3 rounded">
+                 <p className="mb-0" style={{ whiteSpace: 'pre-wrap' }}>
+                   {selectedMessage.body}
+                 </p>
+               </div>
+               <small className="text-muted">
+                 Sent: {selectedMessage.created_at ? new Date(selectedMessage.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Unknown date'}
+               </small>
+             </div>
+           )}
+         </Modal.Body>
+         <Modal.Footer>
+           <Button variant="secondary" onClick={handleMessageModalClose}>
              Close
            </Button>
          </Modal.Footer>

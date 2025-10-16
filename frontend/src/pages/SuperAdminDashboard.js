@@ -65,16 +65,6 @@ const SuperAdminDashboard = ({ user }) => {
     }
   };
 
-  const deleteAdmin = async (admin) => {
-    if (!window.confirm('Are you sure you want to delete this admin?')) return;
-    try {
-      await superAdminAPI.deleteAdmin(admin.id);
-      setMessage('Admin deleted successfully!');
-      loadAdmins();
-    } catch (error) {
-      setMessage('Failed to delete admin.');
-    }
-  };
 
   const openMessageModal = (admin) => {
     setSelectedAdmin(admin);
@@ -105,7 +95,7 @@ const SuperAdminDashboard = ({ user }) => {
 
       {message && (
         <Alert 
-          variant={message.includes('success') ? 'success' : 'danger'}
+          variant={message.includes('success') || message.includes('sent') ? 'success' : 'danger'}
           dismissible
           onClose={() => setMessage('')}
         >
@@ -150,7 +140,6 @@ const SuperAdminDashboard = ({ user }) => {
                 <th>Admin ID</th>
                 <th>Branch</th>
                 <th>Change Password</th>
-                <th>Delete Admin</th>
                 <th>Send Message</th>
               </tr>
             </thead>
@@ -163,11 +152,6 @@ const SuperAdminDashboard = ({ user }) => {
                   <td>
                     <Button size="sm" variant="outline-primary" onClick={() => openPasswordModal(a)}>
                       Change Password
-                    </Button>
-                  </td>
-                  <td>
-                    <Button size="sm" variant="outline-danger" onClick={() => deleteAdmin(a)}>
-                      Delete
                     </Button>
                   </td>
                   <td>

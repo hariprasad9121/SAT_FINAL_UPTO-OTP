@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar, Nav, Container, Dropdown, Badge } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { studentAPI } from '../services/api';
+import { studentAPI, adminAPI } from '../services/api';
 
-const NavigationBar = ({ user, userType, onLogout, onShowProfile }) => {
+const NavigationBar = ({ user, userType, onLogout, onShowProfile, onShowMessage }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [notifications, setNotifications] = useState({ unresponded_count: 0, forms: [] });
+  const [adminMessages, setAdminMessages] = useState([]);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   useEffect(() => {
     if (userType === 'student' && user?.id) {
@@ -23,6 +25,31 @@ const NavigationBar = ({ user, userType, onLogout, onShowProfile }) => {
       // Refresh notifications every 30 seconds
       const interval = setInterval(loadNotifications, 30000);
       return () => clearInterval(interval);
+    } else if (userType === 'admin' && user?.id) {
+      const loadAdminMessages = async () => {
+        try {
+          const response = await adminAPI.getAdminMessages(user.id);
+          setAdminMessages(response.data.messages || []);
+          setUnreadMessageCount(response.data.unread_count || 0);
+        } catch (error) {
+          console.error('Failed to load admin messages:', error);
+        }
+      };
+
+      loadAdminMessages();
+      // Refresh messages every 30 seconds
+      const interval = setInterval(loadAdminMessages, 30000);
+      
+      // Listen for refresh events
+      const handleRefresh = () => {
+        loadAdminMessages();
+      };
+      window.addEventListener('refreshMessages', handleRefresh);
+      
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('refreshMessages', handleRefresh);
+      };
     }
   }, [userType, user?.id]);
 
@@ -150,6 +177,95 @@ const NavigationBar = ({ user, userType, onLogout, onShowProfile }) => {
                         </div>
                       </Dropdown.Item>
                     ))
+                  )}
+                </Dropdown.Menu>
+              </Dropdown>
+            )}
+            
+            {userType === 'admin' && (
+              <Dropdown align="end" className="me-2">
+                <Dropdown.Toggle variant="outline-secondary" id="admin-messages-dropdown">
+                  Notifications
+                  {unreadMessageCount > 0 && (
+                    <Badge bg="danger" className="ms-1">
+                      {unreadMessageCount}
+                    </Badge>
+                  )}
+                </Dropdown.Toggle>
+
+                <Dropdown.Menu>
+                  <Dropdown.Header>
+                    <strong>Admin Messages</strong>
+                  </Dropdown.Header>
+                  {adminMessages.length === 0 ? (
+                    <Dropdown.Item disabled>
+                      No messages
+                    </Dropdown.Item>
+                  ) : (
+                    <>
+                      {adminMessages.map((message) => (
+                      <Dropdown.Item 
+                        key={message.id}
+                        onClick={async () => {
+                          try {
+                            // Mark as read and show message details
+                            await adminAPI.markAdminMessageAsRead(message.id);
+                            
+                            // Update local state
+                            setUnreadMessageCount(prev => Math.max(0, prev - 1));
+                            setAdminMessages(prev => 
+                              prev.map(msg => 
+                                msg.id === message.id ? { ...msg, is_read: true } : msg
+                              )
+                            );
+                            
+                            // Dispatch custom event to show message
+                            const event = new CustomEvent('showMessage', {
+                              detail: { message: { ...message, is_read: true } }
+                            });
+                            window.dispatchEvent(event);
+                          } catch (error) {
+                            console.error('Failed to mark message as read:', error);
+                          }
+                        }}
+                        className={!message.is_read ? 'fw-bold' : ''}
+                      >
+                        <div>
+                          <strong>{message.subject}</strong>
+                          <br />
+                          <small className="text-muted">
+                            From: Super Admin
+                            <br />
+                            {message.created_at ? new Date(message.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Unknown date'}
+                          </small>
+                        </div>
+                      </Dropdown.Item>
+                      ))}
+                      <Dropdown.Divider />
+                      <Dropdown.Item 
+                        onClick={async () => {
+                          if (window.confirm('Are you sure you want to clear all messages?')) {
+                            try {
+                              // Clear all messages by marking them as read
+                              for (const message of adminMessages) {
+                                if (!message.is_read) {
+                                  await adminAPI.markAdminMessageAsRead(message.id);
+                                }
+                              }
+                              setAdminMessages(prev => 
+                                prev.map(msg => ({ ...msg, is_read: true }))
+                              );
+                              setUnreadMessageCount(0);
+                            } catch (error) {
+                              console.error('Failed to clear messages:', error);
+                            }
+                          }
+                        }}
+                        className="text-danger"
+                      >
+                        🗑️ Clear All Messages
+                      </Dropdown.Item>
+                    </>
                   )}
                 </Dropdown.Menu>
               </Dropdown>
