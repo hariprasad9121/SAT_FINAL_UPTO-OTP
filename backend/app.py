@@ -40,6 +40,38 @@ def utcnow_naive():
     """Return current UTC time as a timezone-naive datetime for DB consistency."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+def sync_admin_credentials():
+    """Sync hardcoded admin credentials with database on startup."""
+    try:
+        for employee_id, creds in ADMIN_CREDENTIALS.items():
+            admin = Admin.query.filter_by(employee_id=employee_id).first()
+            if not admin:
+                # Create admin record if it doesn't exist
+                admin = Admin(
+                    name=f"Admin - {creds['branch']}",
+                    employee_id=employee_id,
+                    email=f"{employee_id}@srit.ac.in",
+                    branch=creds['branch'],
+                    password=hash_password(creds['password'])
+                )
+                db.session.add(admin)
+                print(f"Created admin record for {employee_id}")
+            else:
+                # Update hardcoded password with database password if it exists
+                # This ensures database password takes precedence
+                if admin.password:
+                    # Don't update if admin has a custom password in database
+                    pass
+                else:
+                    # Set initial password from hardcoded credentials
+                    admin.password = hash_password(creds['password'])
+                    print(f"Set initial password for {employee_id}")
+        
+        db.session.commit()
+        print("Admin credentials synced with database")
+    except Exception as e:
+        print(f"Error syncing admin credentials: {e}")
+
 # Database Models
 class Student(db.Model):
     __tablename__ = 'students'
@@ -128,6 +160,10 @@ def hash_password(password):
 
 def check_password(password, hashed):
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+def verify_password(password, hashed):
+    """Alias for check_password for clarity in login logic."""
+    return check_password(password, hashed)
 
 def validate_email(email):
     import re
@@ -422,22 +458,44 @@ def admin_login():
         if not all(key in data for key in ['employee_id', 'password']):
             return jsonify({'error': 'Employee ID and password are required'}), 400
         
-        # Check admin credentials
-        if data['employee_id'] in ADMIN_CREDENTIALS:
+        # First check if admin exists in database (for updated passwords)
+        admin = Admin.query.filter_by(employee_id=data['employee_id']).first()
+        
+        if admin:
+            # Admin exists in database, check stored password
+            if verify_password(data['password'], admin.password):
+                # Get role from ADMIN_CREDENTIALS for super admin check
+                admin_cred = ADMIN_CREDENTIALS.get(data['employee_id'], {})
+                return jsonify({
+                    'message': 'Login successful',
+                    'admin': {
+                        'id': admin.id,
+                        'name': admin.name,
+                        'employee_id': admin.employee_id,
+                        'email': admin.email,
+                        'phone': admin.phone,
+                        'gender': admin.gender,
+                        'branch': admin.branch,
+                        'role': admin_cred.get('role', 'admin')
+                    }
+                }), 200
+            else:
+                return jsonify({'error': 'Invalid password'}), 401
+        
+        # If not in database, check hardcoded credentials (for initial setup)
+        elif data['employee_id'] in ADMIN_CREDENTIALS:
             admin_cred = ADMIN_CREDENTIALS[data['employee_id']]
             if data['password'] == admin_cred['password']:
-                # Create or get admin record
-                admin = Admin.query.filter_by(employee_id=data['employee_id']).first()
-                if not admin:
-                    admin = Admin(
-                        name=f"Admin - {admin_cred['branch']}",
-                        employee_id=data['employee_id'],
-                        email=f"{data['employee_id']}@srit.ac.in",
-                        branch=admin_cred['branch'],
-                        password=hash_password(data['password'])
-                    )
-                    db.session.add(admin)
-                    db.session.commit()
+                # Create admin record in database
+                admin = Admin(
+                    name=f"Admin - {admin_cred['branch']}",
+                    employee_id=data['employee_id'],
+                    email=f"{data['employee_id']}@srit.ac.in",
+                    branch=admin_cred['branch'],
+                    password=hash_password(data['password'])
+                )
+                db.session.add(admin)
+                db.session.commit()
                 
                 return jsonify({
                     'message': 'Login successful',
@@ -2053,4 +2111,5 @@ def delete_form(form_id):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        sync_admin_credentials()
     app.run(debug=True, host='0.0.0.0', port=5000) 
