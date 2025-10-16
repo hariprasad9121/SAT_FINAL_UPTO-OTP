@@ -105,4 +105,12 @@ export const adminAPI = {
   deleteForm: (formId, adminId) => api.delete(`/admin/forms/${formId}?admin_id=${adminId}`),
 };
 
+// Super Admin API
+export const superAdminAPI = {
+  listAdmins: () => api.get('/superadmin/admins'),
+  changeAdminPassword: (adminId, newPassword) => api.put(`/superadmin/admins/${adminId}/password`, { new_password: newPassword }),
+  deleteAdmin: (adminId) => api.delete(`/superadmin/admins/${adminId}`),
+  sendMessageToAdmin: (adminId, subject, body) => api.post('/superadmin/messages', { admin_id: adminId, subject, body }),
+};
+
 export default api; 

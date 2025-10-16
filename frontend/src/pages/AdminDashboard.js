@@ -6,13 +6,16 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { adminAPI } from '../services/api';
 import FormCreationModal from '../components/FormCreationModal';
+import { useLocation } from 'react-router-dom';
 
 const AdminDashboard = ({ user }) => {
+  const location = useLocation();
   const [dashboardData, setDashboardData] = useState(null);
   const [certificates, setCertificates] = useState([]);
   const [students, setStudents] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
   const [filters, setFilters] = useState({});
   const [analyticsFilters, setAnalyticsFilters] = useState({});
   const [studentFilters, setStudentFilters] = useState({});
@@ -31,6 +34,10 @@ const AdminDashboard = ({ user }) => {
   const [unsubmitted, setUnsubmitted] = useState([]);
   const [unsubmittedCount, setUnsubmittedCount] = useState(0);
   const [unsubmittedFilters, setUnsubmittedFilters] = useState({ year: '', section: '' });
+  
+  // Super admin view state
+  const [superAdminView, setSuperAdminView] = useState(false);
+  const [departmentName, setDepartmentName] = useState('');
 
   // Admin credentials mapping
   const adminCredentials = {
@@ -43,35 +50,73 @@ const AdminDashboard = ({ user }) => {
     'admin@mech': { branch: 'MECHANICAL ENGINEERING', password: 'Mech@srit' }
   };
 
-  const userBranch = adminCredentials[user?.employee_id]?.branch;
+  // Check if this is a super admin view
+  useEffect(() => {
+    if (location.state?.superAdminView) {
+      setSuperAdminView(true);
+      setDepartmentName(location.state.departmentName || '');
+      // Reload data with the new branch filter - only loadDashboardData which includes analytics
+      setTimeout(() => {
+        loadDashboardData();
+      }, 100);
+    }
+  }, [location.state]);
+
+  const userBranch = superAdminView ? location.state?.forceBranch : adminCredentials[user?.employee_id]?.branch;
 
   const loadDashboardData = useCallback(async () => {
+    // Prevent multiple simultaneous calls
+    if (dashboardLoading) {
+      return;
+    }
+    
     try {
-      setLoading(true);
+      setDashboardLoading(true);
+      const branch = superAdminView ? location.state?.forceBranch : userBranch;
+      
+      // Ensure we have a valid branch before making API calls
+      if (!branch) {
+        return;
+      }
+      
       const [dashboardRes, analyticsRes] = await Promise.all([
-        adminAPI.getDashboard({ branch: userBranch }),
-        adminAPI.getAnalytics({ branch: userBranch })
+        adminAPI.getDashboard({ branch: branch }),
+        adminAPI.getAnalytics({ branch: branch })
       ]);
       
+      console.log('Setting dashboard data:', dashboardRes.data);
+      console.log('Setting analytics data:', analyticsRes.data);
       setDashboardData(dashboardRes.data);
       setAnalytics(analyticsRes.data);
     } catch (error) {
       setMessage('Failed to load dashboard data.');
     } finally {
-      setLoading(false);
+      setDashboardLoading(false);
     }
-  }, [userBranch]);
+  }, [userBranch, superAdminView, location.state?.forceBranch]);
 
   useEffect(() => {
-    loadDashboardData();
-    loadForms();
+    const loadInitialData = async () => {
+      try {
+        setLoading(true);
+        await loadDashboardData();
+        await loadForms();
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadInitialData();
   }, [loadDashboardData]);
 
   const loadCertificates = async (filters = {}) => {
     try {
       // Add department filter for department-specific admins
-      if (userBranch) {
-        filters.branch = userBranch;
+      const branch = superAdminView ? location.state?.forceBranch : userBranch;
+      if (branch) {
+        filters.branch = branch;
       }
       const response = await adminAPI.getCertificates(filters);
       setCertificates(response.data.certificates);
@@ -82,7 +127,8 @@ const AdminDashboard = ({ user }) => {
 
   const loadStudents = async (filters = {}) => {
     try {
-      const params = { branch: userBranch, ...filters };
+      const branch = superAdminView ? location.state?.forceBranch : userBranch;
+      const params = { branch: branch, ...filters };
       const response = await adminAPI.getStudents(params);
       let studentsData = response.data.students;
       
@@ -103,6 +149,7 @@ const AdminDashboard = ({ user }) => {
     const newFilters = { ...filters, [key]: value };
     setFilters(newFilters);
     loadCertificates(newFilters);
+    loadAnalytics(newFilters);
   };
 
   const handleAnalyticsFilterChange = (key, value) => {
@@ -119,8 +166,9 @@ const AdminDashboard = ({ user }) => {
 
   const loadAnalytics = async (filters = {}) => {
     try {
-      if (userBranch) {
-        filters.branch = userBranch;
+      const branch = superAdminView ? location.state?.forceBranch : userBranch;
+      if (branch) {
+        filters.branch = branch;
       }
       const response = await adminAPI.getAnalytics(filters);
       setAnalytics(response.data);
@@ -176,10 +224,11 @@ const AdminDashboard = ({ user }) => {
 
   const handleReportDownload = async (type = 'excel') => {
     try {
+      const branch = superAdminView ? location.state?.forceBranch : userBranch;
       const response = await adminAPI.generateReport({
         type,
         ...filters,
-        branch: userBranch
+        branch: branch
       });
       
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -197,7 +246,8 @@ const AdminDashboard = ({ user }) => {
 
   const handleStudentsDownload = async () => {
     try {
-      const params = { branch: userBranch, ...studentFilters };
+      const branch = superAdminView ? location.state?.forceBranch : userBranch;
+      const params = { branch: branch, ...studentFilters };
       const response = await adminAPI.downloadStudentsExcel(params);
       
       // Create download link
@@ -354,13 +404,15 @@ const AdminDashboard = ({ user }) => {
     <div>
       <Row className="mb-4">
         <Col>
-          <h2>Admin Dashboard</h2>
-          <p className="text-muted">Welcome back, {user?.name}!</p>
-                     {userBranch && (
-             <p className="admin-department-text">
-               <strong>Department:</strong> {userBranch}
-             </p>
-           )}
+          <h2>{superAdminView ? `${departmentName} Department Dashboard` : 'Admin Dashboard'}</h2>
+          <p className="text-muted">
+            {superAdminView ? `Super Admin View - ${departmentName} Department` : `Welcome back, ${user?.name}!`}
+          </p>
+          {userBranch && (
+            <p className="admin-department-text">
+              <strong>Department:</strong> {userBranch}
+            </p>
+          )}
         </Col>
       </Row>
 
@@ -375,7 +427,17 @@ const AdminDashboard = ({ user }) => {
       )}
 
       {/* Statistics Cards */}
-      <Row className="mb-4">
+      {loading ? (
+        <Row className="mb-4">
+          <Col className="text-center">
+            <div className="spinner-border text-primary" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <p className="mt-2">Loading dashboard data...</p>
+          </Col>
+        </Row>
+      ) : (
+        <Row className="mb-4">
         <Col lg={3} md={6} className="mb-3">
           <Card className="dashboard-card analytics-card">
             <Card.Body className="text-center">
@@ -409,6 +471,7 @@ const AdminDashboard = ({ user }) => {
           </Card>
         </Col>
       </Row>
+      )}
 
       <Tabs activeKey={activeTab} onSelect={(k) => setActiveTab(k)} className="mb-4">
         <Tab eventKey="certificates" title="Manage Certificates">

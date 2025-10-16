@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import StudentDashboard from './pages/StudentDashboard';
 import StudentCertificates from './pages/StudentCertificates';
 import AdminDashboard from './pages/AdminDashboard';
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import StudentRegister from './pages/StudentRegister';
 import './App.css';
 
@@ -98,6 +99,16 @@ function App() {
               element={
                 user && userType === 'student' ? (
                   <StudentDashboard user={user} />
+                ) : (
+                  <Navigate to="/login" />
+                )
+              } 
+            />
+            <Route 
+              path="/superadmin/dashboard" 
+              element={
+                user && userType === 'admin' ? (
+                  <SuperAdminDashboard user={user} />
                 ) : (
                   <Navigate to="/login" />
                 )

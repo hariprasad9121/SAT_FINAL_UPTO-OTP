@@ -1915,7 +1915,14 @@ def superadmin_change_admin_password(admin_id):
         admin = db.session.get(Admin, admin_id)
         if not admin:
             return jsonify({'error': 'Admin not found'}), 404
+        
+        # Update admin password in database
         admin.password = hash_password(new_password)
+        
+        # Update the password in ADMIN_CREDENTIALS for immediate effect
+        if admin.employee_id in ADMIN_CREDENTIALS:
+            ADMIN_CREDENTIALS[admin.employee_id]['password'] = new_password
+        
         db.session.commit()
         return jsonify({'message': 'Admin password updated successfully'}), 200
     except Exception as e:

@@ -86,7 +86,15 @@ const Login = ({ onLogin }) => {
         : await authAPI.adminLogin(credentials);
 
       const userData = response.data;
-      onLogin(userData[userType], userType);
+      const loggedUser = userData[userType];
+      
+      // Set correct user type based on login type
+      if (userType === 'student') {
+        onLogin(loggedUser, 'student');
+      } else {
+        // For admin login, check if it's super admin
+        onLogin(loggedUser, 'admin');
+      }
       
       // Clear form data after successful login
       setFormData({
@@ -96,7 +104,15 @@ const Login = ({ onLogin }) => {
       
       setMessage('Login successful! Redirecting...');
       setTimeout(() => {
-        navigate(userType === 'student' ? '/student/dashboard' : '/admin/dashboard');
+        if (userType === 'student') {
+          navigate('/student/dashboard');
+        } else {
+          if (loggedUser?.role === 'superadmin') {
+            navigate('/superadmin/dashboard');
+          } else {
+            navigate('/admin/dashboard');
+          }
+        }
       }, 1000);
 
     } catch (error) {

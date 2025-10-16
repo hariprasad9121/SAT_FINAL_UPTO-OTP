@@ -46,7 +46,9 @@ const NavigationBar = ({ user, userType, onLogout }) => {
           <Nav className="me-auto">
             <Nav.Link 
               href="#" 
-              onClick={() => handleNavigation(userType === 'student' ? '/student/dashboard' : '/admin/dashboard')}
+              onClick={() => handleNavigation(
+                userType === 'student' ? '/student/dashboard' : '/admin/dashboard'
+              )}
             >
               Dashboard
             </Nav.Link>
