@@ -103,6 +103,9 @@ export const adminAPI = {
   },
   sendDeadlineReminders: (adminId) => api.post(`/admin/forms/send-deadline-reminders?admin_id=${adminId}`),
   deleteForm: (formId, adminId) => api.delete(`/admin/forms/${formId}?admin_id=${adminId}`),
+  changePassword: (data, adminId) => api.put('/admin/change-password', data, {
+    headers: { 'X-Admin-ID': adminId }
+  }),
 };
 
 // Super Admin API

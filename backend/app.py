@@ -1086,6 +1086,44 @@ def get_analytics():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/change-password', methods=['PUT'])
+def admin_change_password():
+    try:
+        data = request.get_json()
+        old_password = data.get('oldPassword')
+        new_password = data.get('newPassword')
+        
+        if not old_password or not new_password:
+            return jsonify({'error': 'Old password and new password are required'}), 400
+        
+        # Get admin ID from request headers or session
+        admin_id = request.headers.get('X-Admin-ID')
+        if not admin_id:
+            return jsonify({'error': 'Admin ID not found'}), 400
+        
+        # Get admin from database
+        admin = db.session.get(Admin, admin_id)
+        if not admin:
+            return jsonify({'error': 'Admin not found'}), 404
+        
+        # Verify old password
+        if not verify_password(old_password, admin.password):
+            return jsonify({'error': 'Current password is incorrect'}), 401
+        
+        # Update password in database
+        admin.password = hash_password(new_password)
+        
+        # Update the password in ADMIN_CREDENTIALS for immediate effect
+        if admin.employee_id in ADMIN_CREDENTIALS:
+            ADMIN_CREDENTIALS[admin.employee_id]['password'] = new_password
+        
+        db.session.commit()
+        return jsonify({'message': 'Password changed successfully'}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/admin/report', methods=['GET'])
 def generate_report():
     try:

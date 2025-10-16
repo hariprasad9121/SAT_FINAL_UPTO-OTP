@@ -3,7 +3,7 @@ import { Navbar, Nav, Container, Dropdown, Badge } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI } from '../services/api';
 
-const NavigationBar = ({ user, userType, onLogout }) => {
+const NavigationBar = ({ user, userType, onLogout, onShowProfile }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [notifications, setNotifications] = useState({ unresponded_count: 0, forms: [] });
@@ -183,7 +183,7 @@ const NavigationBar = ({ user, userType, onLogout }) => {
                   )}
                 </Dropdown.Header>
                 <Dropdown.Divider />
-                <Dropdown.Item onClick={() => handleNavigation('/profile')}>
+                <Dropdown.Item onClick={() => onShowProfile && onShowProfile()}>
                    Profile
                 </Dropdown.Item>
                 <Dropdown.Divider />

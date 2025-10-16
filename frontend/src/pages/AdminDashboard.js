@@ -36,6 +36,12 @@ const AdminDashboard = ({ user }) => {
   const [unsubmittedCount, setUnsubmittedCount] = useState(0);
   const [unsubmittedFilters, setUnsubmittedFilters] = useState({ year: '', section: '' });
   
+  // Password change state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordData, setPasswordData] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  
   // Super admin view state
   const [superAdminView, setSuperAdminView] = useState(false);
   const [departmentName, setDepartmentName] = useState('');
@@ -375,6 +381,43 @@ const AdminDashboard = ({ user }) => {
     }
   };
 
+  const handleShowProfile = () => {
+    setShowProfileModal(true);
+  };
+
+  const handlePasswordChange = async () => {
+    if (!passwordData.oldPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
+      setMessage('Please fill in all password fields.');
+      return;
+    }
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setMessage('New password and confirm password do not match.');
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      setMessage('New password must be at least 6 characters long.');
+      return;
+    }
+
+    try {
+      setPasswordChanging(true);
+      const response = await adminAPI.changePassword({
+        oldPassword: passwordData.oldPassword,
+        newPassword: passwordData.newPassword
+      }, user.id);
+      
+      setMessage('Password changed successfully!');
+      setShowPasswordModal(false);
+      setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to change password.');
+    } finally {
+      setPasswordChanging(false);
+    }
+  };
+
   const getStatusBadge = (status) => {
     const variants = {
       'Pending': 'warning',
@@ -421,6 +464,16 @@ const AdminDashboard = ({ user }) => {
                 onClick={() => navigate('/superadmin/dashboard')}
               >
                 ← Back to Super Admin Dashboard
+              </button>
+            </div>
+          )}
+          {!superAdminView && (
+            <div className="mt-3">
+              <button 
+                className="btn btn-outline-primary"
+                onClick={() => setShowProfileModal(true)}
+              >
+                Admin Profile
               </button>
             </div>
           )}
@@ -1216,6 +1269,91 @@ const AdminDashboard = ({ user }) => {
              </Button>
            )}
            <Button variant="secondary" onClick={() => setShowResponsesModal(false)}>
+             Close
+           </Button>
+         </Modal.Footer>
+       </Modal>
+
+       {/* Password Change Modal */}
+       <Modal show={showPasswordModal} onHide={() => setShowPasswordModal(false)}>
+         <Modal.Header closeButton>
+           <Modal.Title>Change Password</Modal.Title>
+         </Modal.Header>
+         <Modal.Body>
+           <Form>
+             <Form.Group className="mb-3">
+               <Form.Label>Current Password</Form.Label>
+               <Form.Control
+                 type="password"
+                 value={passwordData.oldPassword}
+                 onChange={(e) => setPasswordData({...passwordData, oldPassword: e.target.value})}
+                 placeholder="Enter current password"
+               />
+             </Form.Group>
+             <Form.Group className="mb-3">
+               <Form.Label>New Password</Form.Label>
+               <Form.Control
+                 type="password"
+                 value={passwordData.newPassword}
+                 onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                 placeholder="Enter new password"
+               />
+             </Form.Group>
+             <Form.Group className="mb-3">
+               <Form.Label>Confirm New Password</Form.Label>
+               <Form.Control
+                 type="password"
+                 value={passwordData.confirmPassword}
+                 onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                 placeholder="Confirm new password"
+               />
+             </Form.Group>
+           </Form>
+         </Modal.Body>
+         <Modal.Footer>
+           <Button 
+             variant="primary" 
+             onClick={handlePasswordChange}
+             disabled={passwordChanging}
+           >
+             {passwordChanging ? 'Changing...' : 'Change Password'}
+           </Button>
+           <Button variant="secondary" onClick={() => setShowPasswordModal(false)}>
+             Cancel
+           </Button>
+         </Modal.Footer>
+       </Modal>
+
+       {/* Profile Modal */}
+       <Modal show={showProfileModal} onHide={() => setShowProfileModal(false)}>
+         <Modal.Header closeButton>
+           <Modal.Title>Admin Profile</Modal.Title>
+         </Modal.Header>
+         <Modal.Body>
+           <Row>
+             <Col md={6}>
+               <h6>Admin Information</h6>
+               <p><strong>Name:</strong> {user?.name}</p>
+               <p><strong>Employee ID:</strong> {user?.employee_id}</p>
+               <p><strong>Email:</strong> {user?.email}</p>
+               <p><strong>Department:</strong> {user?.branch}</p>
+             </Col>
+             <Col md={6}>
+               <h6>Security</h6>
+               <Button 
+                 variant="primary" 
+                 onClick={() => {
+                   setShowProfileModal(false);
+                   setShowPasswordModal(true);
+                 }}
+               >
+                 Change Password
+               </Button>
+             </Col>
+           </Row>
+         </Modal.Body>
+         <Modal.Footer>
+           <Button variant="secondary" onClick={() => setShowProfileModal(false)}>
              Close
            </Button>
          </Modal.Footer>
