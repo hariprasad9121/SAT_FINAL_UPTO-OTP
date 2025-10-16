@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar, Nav, Container, Dropdown, Badge } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { studentAPI } from '../services/api';
 
 const NavigationBar = ({ user, userType, onLogout }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [notifications, setNotifications] = useState({ unresponded_count: 0, forms: [] });
 
   useEffect(() => {
@@ -31,13 +32,47 @@ const NavigationBar = ({ user, userType, onLogout }) => {
   };
 
   const handleNavigation = (path) => {
+    console.log('Navigating to:', path);
     navigate(path);
+  };
+
+  // Determine the correct dashboard path based on current location and user type
+  const getDashboardPath = () => {
+    console.log('getDashboardPath - userType:', userType, 'location:', location.pathname);
+    if (userType === 'student') {
+      return '/student/dashboard';
+    } else if (userType === 'superadmin') {
+      // If we're in the main super admin dashboard, stay there
+      if (location.pathname === '/superadmin/dashboard') {
+        console.log('Already in super admin dashboard, staying here');
+        return '/superadmin/dashboard';
+      }
+      // If we're in department view or anywhere else, go to main super admin dashboard
+      console.log('Not in main super admin dashboard, navigating to /superadmin/dashboard');
+      return '/superadmin/dashboard';
+    } else {
+      return '/admin/dashboard';
+    }
   };
 
   return (
     <Navbar bg="white" expand="lg" className="shadow-sm">
       <Container>
-        <Navbar.Brand href="#" className="fw-bold">
+        <Navbar.Brand 
+          href="#" 
+          className="fw-bold"
+          onClick={(e) => {
+            e.preventDefault();
+            if (userType === 'superadmin') {
+              // Force navigation to super admin dashboard
+              console.log('Super admin clicking SAT Portal, navigating to /superadmin/dashboard');
+              navigate('/superadmin/dashboard', { replace: true });
+            } else {
+              handleNavigation(getDashboardPath());
+            }
+          }}
+          style={{ cursor: 'pointer' }}
+        >
           SAT Portal
         </Navbar.Brand>
         
@@ -46,15 +81,33 @@ const NavigationBar = ({ user, userType, onLogout }) => {
           <Nav className="me-auto">
             <Nav.Link 
               href="#" 
-              onClick={() => handleNavigation(
-                userType === 'student' ? '/student/dashboard' : '/admin/dashboard'
-              )}
+              onClick={(e) => {
+                e.preventDefault();
+                if (userType === 'superadmin') {
+                  // Force navigation to super admin dashboard
+                  console.log('Super admin clicking Dashboard, navigating to /superadmin/dashboard');
+                  navigate('/superadmin/dashboard', { replace: true });
+                } else {
+                  handleNavigation(getDashboardPath());
+                }
+              }}
             >
               Dashboard
             </Nav.Link>
             {userType === 'student' && (
               <Nav.Link href="#" onClick={() => handleNavigation('/student/certificates')}>
                 Manage Certificates
+              </Nav.Link>
+            )}
+            {userType === 'superadmin' && (
+              <Nav.Link 
+                href="#" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavigation('/superadmin/dashboard');
+                }}
+              >
+                Super Admin Dashboard
               </Nav.Link>
             )}
           </Nav>
@@ -109,7 +162,10 @@ const NavigationBar = ({ user, userType, onLogout }) => {
 
               <Dropdown.Menu>
                 <Dropdown.Header>
-                  <strong>{userType === 'student' ? 'Student' : 'Admin'}</strong>
+                  <strong>
+                    {userType === 'student' ? 'Student' : 
+                     userType === 'superadmin' ? 'Super Admin' : 'Admin'}
+                  </strong>
                   <br />
                   <small className="text-muted">
                     {userType === 'student' 
@@ -117,7 +173,7 @@ const NavigationBar = ({ user, userType, onLogout }) => {
                       : `ID: ${user?.employee_id}`
                     }
                   </small>
-                  {userType === 'admin' && user?.branch && (
+                  {(userType === 'admin' || userType === 'superadmin') && user?.branch && (
                     <>
                       <br />
                       <small className="text-muted">

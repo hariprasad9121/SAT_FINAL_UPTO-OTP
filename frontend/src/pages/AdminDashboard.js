@@ -6,10 +6,11 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { adminAPI } from '../services/api';
 import FormCreationModal from '../components/FormCreationModal';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const AdminDashboard = ({ user }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [certificates, setCertificates] = useState([]);
   const [students, setStudents] = useState([]);
@@ -412,6 +413,16 @@ const AdminDashboard = ({ user }) => {
             <p className="admin-department-text">
               <strong>Department:</strong> {userBranch}
             </p>
+          )}
+          {superAdminView && (
+            <div className="mt-3">
+              <button 
+                className="btn btn-primary"
+                onClick={() => navigate('/superadmin/dashboard')}
+              >
+                ← Back to Super Admin Dashboard
+              </button>
+            </div>
           )}
         </Col>
       </Row>
